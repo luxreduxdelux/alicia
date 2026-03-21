@@ -1,26 +1,42 @@
+use super::error::*;
 use super::instruction::*;
 use super::token::*;
+use crate::runtime::machine::*;
+
+//================================================================
 
 pub struct Source {}
 
 impl Source {
-    pub fn parse(path: &str) {
-        let file = std::fs::read_to_string("test.alicia").unwrap();
-        let mut list: Vec<Token> = Vec::new();
+    pub fn parse(path: &str) -> Result<Self, AliciaError> {
+        let file = std::fs::read_to_string(path).unwrap();
+        let mut token_buffer = TokenBuffer::new(&file);
 
-        for line in file.lines() {
-            Token::parse_line(line, &mut list);
+        let mut list: Vec<Declaration> = Vec::new();
+
+        while let Some(token) = token_buffer.next() {
+            match token {
+                Token::Function => {
+                    /*
+                    list.push(Declaration::Function(Function::parse_token(
+                        &token,
+                        &mut token_buffer,
+                    )?));
+                    */
+
+                    let function = Function::parse_token(&token, &mut token_buffer)?;
+
+                    Machine::execute_function(function);
+
+                    break;
+                }
+                _ => {}
+            };
         }
 
-        println!("token list: {list:?}");
+        //Instruction::parse_token(&mut token_buffer, &mut list)?;
+        //println!("AST: {list:#?}");
 
-        let mut iterator = list.iter();
-        let mut list: Vec<Instruction> = Vec::new();
-
-        while let Some(token) = iterator.next() {
-            Instruction::parse_token(token, &mut iterator, &mut list);
-        }
-
-        println!("inst. list: {list:?}");
+        Ok(Self {})
     }
 }

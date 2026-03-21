@@ -1,7 +1,14 @@
 mod parser;
+mod runtime;
+
+//================================================================
 
 use crate::parser::source::*;
 
+//================================================================
+
 fn main() {
-    Source::parse("test.alicia");
+    if let Err(error) = Source::parse("test.alicia") {
+        println!("{error}");
+    }
 }
