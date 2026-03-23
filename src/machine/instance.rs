@@ -1,7 +1,11 @@
-use super::instruction::*;
-use super::machine::*;
-use crate::parser::error::*;
-use crate::parser::token::*;
+use super::buffer::*;
+use super::error::*;
+use super::scope::*;
+use super::value::*;
+use crate::parse::construct::*;
+use crate::split::buffer::*;
+use crate::split::token::*;
+use crate::split::utility::*;
 
 //================================================================
 
@@ -38,7 +42,7 @@ impl<'a> Instance<'a> {
         Self { scope }
     }
 
-    pub fn load_file(&mut self, path: &str) -> Result<(), AliciaError> {
+    pub fn load_file(&mut self, path: &str) -> Result<(), crate::utility::error::Error> {
         let mut token_buffer = TokenBuffer::new(Source::new_file(path)?);
 
         while let Some(token) = token_buffer.next() {
@@ -63,6 +67,8 @@ impl<'a> Instance<'a> {
             };
         }
 
+        println!("scope: {:?}", self.scope);
+
         Ok(())
     }
 
@@ -70,19 +76,19 @@ impl<'a> Instance<'a> {
         self.scope.get_value(name)
     }
 
-    pub fn execute_function(
+    pub fn call_function(
         &self,
         function: &Function,
         argument_list: Vec<String>,
-    ) -> Result<Value, AliciaError> {
-        Self::execute_function_aux(&self.scope, function, argument_list)
+    ) -> Result<Value, Error> {
+        Self::call_function_aux(&self.scope, function, argument_list)
     }
 
-    fn execute_function_aux(
+    fn call_function_aux(
         scope: &Scope,
         function: &Function,
         argument_list: Vec<String>,
-    ) -> Result<Value, AliciaError> {
+    ) -> Result<Value, Error> {
         let mut local = Scope::new(Some(scope));
 
         for instruction in &function.code {
@@ -97,7 +103,7 @@ impl<'a> Instance<'a> {
                     if let Some(function) = local.get_value(&invocation.name) {
                         match function {
                             Value::Function(function) => {
-                                return Self::execute_function_aux(
+                                return Self::call_function_aux(
                                     &local,
                                     function,
                                     argument_list.clone(),

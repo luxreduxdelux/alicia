@@ -1,20 +1,21 @@
-mod parser;
-mod runtime;
+mod machine;
+mod parse;
+mod split;
+mod utility;
 
 //================================================================
 
-use crate::parser::error::*;
-use crate::runtime::instance::*;
+use crate::machine::instance::*;
 
 //================================================================
 
-fn main() -> Result<(), AliciaError> {
+fn main() -> Result<(), crate::utility::error::Error> {
     let mut instance = Instance::new();
     instance.load_file("test.alicia")?;
-    instance.execute_function(
-        &instance.get_value("main").unwrap().as_function()?,
-        Vec::default(),
-    )?;
+
+    if let Some(main) = instance.get_value("main") {
+        instance.call_function(&main.as_function()?, Vec::default())?;
+    }
 
     Ok(())
 }

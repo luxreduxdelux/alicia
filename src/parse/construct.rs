@@ -1,6 +1,5 @@
-use super::instance::*;
-use super::machine::*;
-use crate::parser::{error::*, token::*};
+use crate::split::buffer::*;
+use crate::split::token::*;
 
 //================================================================
 
@@ -11,7 +10,9 @@ pub enum Instruction {
 }
 
 impl Instruction {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
+    pub fn parse_token(
+        token_buffer: &mut TokenBuffer,
+    ) -> Result<Self, crate::utility::error::Error> {
         if token_buffer.want_peek(TokenKind::Let) {
             return Ok(Self::Assignment(Assignment::parse_token(token_buffer)?));
         } else if token_buffer.want_peek(TokenKind::String) {
@@ -31,7 +32,9 @@ pub struct Assignment {
 }
 
 impl Assignment {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
+    pub fn parse_token(
+        token_buffer: &mut TokenBuffer,
+    ) -> Result<Self, crate::utility::error::Error> {
         token_buffer.want(TokenKind::Let)?;
         let variable = Variable::parse_token(token_buffer)?;
         token_buffer.want(TokenKind::Assignment)?;
@@ -48,7 +51,9 @@ pub struct Invocation {
 }
 
 impl Invocation {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
+    pub fn parse_token(
+        token_buffer: &mut TokenBuffer,
+    ) -> Result<Self, crate::utility::error::Error> {
         let name = token_buffer.want(TokenKind::String)?.data.inner_string();
         let mut list = Vec::new();
 
@@ -82,7 +87,9 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
+    pub fn parse_token(
+        token_buffer: &mut TokenBuffer,
+    ) -> Result<Self, crate::utility::error::Error> {
         let mut list = Vec::new();
         let mut code = Vec::new();
 
@@ -139,7 +146,7 @@ pub struct Variable {
 }
 
 impl Variable {
-    fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
+    fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, crate::utility::error::Error> {
         let name = token_buffer.want(TokenKind::String)?.data.inner_string();
         token_buffer.want(TokenKind::Colon)?;
         let kind = token_buffer.want(TokenKind::String)?.data.inner_string();
@@ -157,7 +164,9 @@ pub struct Structure {
 }
 
 impl Structure {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
+    pub fn parse_token(
+        token_buffer: &mut TokenBuffer,
+    ) -> Result<Self, crate::utility::error::Error> {
         let mut list = Vec::new();
 
         let name = token_buffer.want(TokenKind::String)?.data.inner_string();

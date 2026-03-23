@@ -1,45 +1,12 @@
-use crate::parser::error::*;
-use crate::runtime::instruction::*;
+use super::buffer::*;
+use super::error::*;
+use crate::parse::construct::*;
 
 //================================================================
 
-use std::collections::HashMap;
 use std::fmt::Debug;
 
 //================================================================
-
-pub struct Machine {}
-
-impl Machine {}
-
-#[derive(Debug, Default)]
-pub struct Scope<'a> {
-    symbol: HashMap<String, Value>,
-    parent: Option<Box<&'a Scope<'a>>>,
-}
-
-impl<'a> Scope<'a> {
-    pub fn new(parent: Option<&'a Scope>) -> Self {
-        Self {
-            symbol: HashMap::default(),
-            parent: parent.map(Box::new),
-        }
-    }
-
-    pub fn set_value(&mut self, name: &str, value: Value) {
-        self.symbol.insert(name.to_string(), value);
-    }
-
-    pub fn get_value(&self, name: &str) -> Option<&Value> {
-        if let Some(symbol) = self.symbol.get(name) {
-            Some(symbol)
-        } else if let Some(parent) = &self.parent {
-            Some(parent.get_value(name)?)
-        } else {
-            None
-        }
-    }
-}
 
 pub enum Value {
     Null,
@@ -48,7 +15,7 @@ pub enum Value {
     Decimal(f32),
     Boolean(bool),
     Function(Function),
-    FunctionNative(Box<dyn Fn(ArgumentBuffer) -> Result<Value, AliciaError>>),
+    FunctionNative(Box<dyn Fn(ArgumentBuffer) -> Result<Value, Error>>),
     Enumerate(Enumerate),
     Structure(Structure),
 }
@@ -90,51 +57,44 @@ impl Into<String> for Value {
 }
 
 impl Value {
-    pub fn as_string(&self) -> Result<String, AliciaError> {
+    pub fn as_string(&self) -> Result<String, Error> {
         if let Self::String(string) = self {
             Ok(string.to_string())
         } else {
-            Err(AliciaError::TypeError(TypeError::IncorrectKind(
+            Err(crate::machine::error::Error::IncorrectKind(
                 ValueKind::String,
                 self.kind(),
-            )))
+            ))
         }
     }
 
-    pub fn as_function(&self) -> Result<Function, AliciaError> {
+    pub fn as_function(&self) -> Result<Function, Error> {
         if let Self::Function(function) = self {
             Ok(function.clone())
         } else {
-            Err(AliciaError::TypeError(TypeError::IncorrectKind(
-                ValueKind::Integer,
-                self.kind(),
-            )))
+            Err(Error::IncorrectKind(ValueKind::Integer, self.kind()))
         }
     }
 
-    pub fn parse_text(kind: &str, text: &str) -> Result<Self, AliciaError> {
+    pub fn parse_text(kind: &str, text: &str) -> Result<Self, Error> {
         Self::parse_kind(ValueKind::parse_text(kind)?, text)
     }
 
-    pub fn parse_kind(kind: ValueKind, text: &str) -> Result<Self, AliciaError> {
+    pub fn parse_kind(kind: ValueKind, text: &str) -> Result<Self, Error> {
         match kind {
             ValueKind::String => Ok(Self::String(text.to_string())),
             ValueKind::Integer => {
                 if let Ok(integer) = text.parse::<i32>() {
                     Ok(Self::Integer(integer))
                 } else {
-                    Err(AliciaError::TypeError(TypeError::IntegerParseFail(
-                        text.to_string(),
-                    )))
+                    Err(Error::IntegerParseFail(text.to_string()))
                 }
             }
             ValueKind::Decimal => {
                 if let Ok(decimal) = text.parse::<f32>() {
                     Ok(Self::Decimal(decimal))
                 } else {
-                    Err(AliciaError::TypeError(TypeError::DecimalParseFail(
-                        text.to_string(),
-                    )))
+                    Err(Error::DecimalParseFail(text.to_string()))
                 }
             }
             ValueKind::Boolean => {
@@ -143,9 +103,7 @@ impl Value {
                 } else if text == "false" {
                     Ok(Self::Boolean(false))
                 } else {
-                    Err(AliciaError::TypeError(TypeError::BooleanParseFail(
-                        text.to_string(),
-                    )))
+                    Err(Error::BooleanParseFail(text.to_string()))
                 }
             }
             _ => {
@@ -172,6 +130,8 @@ impl Value {
     }
 }
 
+//================================================================
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ValueKind {
     Null,
@@ -187,7 +147,7 @@ pub enum ValueKind {
 
 impl ValueKind {
     #[rustfmt::skip]
-    fn parse_text(kind: &str) -> Result<Self, AliciaError> {
+    fn parse_text(kind: &str) -> Result<Self, Error> {
         match kind {
             "Null"           => Ok(Self::Null),
             "String"         => Ok(Self::String),
@@ -198,51 +158,7 @@ impl ValueKind {
             "FunctionNative" => Ok(Self::FunctionNative),
             "Enumerate"      => Ok(Self::Enumerate),
             "Structure"      => Ok(Self::Structure),
-            _                => Err(AliciaError::TypeError(TypeError::UnknownKind(kind.to_string()))),
+            _                => Err(Error::UnknownKind(kind.to_string())),
         }
-    }
-}
-
-pub struct ArgumentBuffer {
-    buffer: Vec<String>,
-    cursor: usize,
-}
-
-impl ArgumentBuffer {
-    pub fn new(buffer: Vec<String>) -> Self {
-        Self {
-            buffer,
-            cursor: usize::default(),
-        }
-    }
-
-    pub fn want(&mut self, kind: ValueKind) -> Result<Value, AliciaError> {
-        if let Some(next) = self.buffer.get(self.cursor) {
-            self.cursor += 1;
-
-            if let Ok(value) = Value::parse_kind(kind, next) {
-                if value.kind() == kind {
-                    return Ok(value);
-                } else {
-                    return Err(AliciaError::TypeError(TypeError::IncorrectKind(
-                        kind,
-                        value.kind(),
-                    )));
-                }
-            }
-        }
-
-        Err(AliciaError::TypeError(TypeError::IncorrectKind(
-            kind,
-            ValueKind::Null,
-        )))
-    }
-
-    pub fn peek(&self) -> bool {
-        self.buffer.get(self.cursor).is_some()
-    }
-
-    pub fn size(&self) -> usize {
-        self.buffer.iter().len()
     }
 }
