@@ -1,4 +1,5 @@
 use super::value::*;
+use crate::split::token::*;
 
 //================================================================
 
@@ -12,6 +13,8 @@ pub enum Error {
     IncorrectKind(ValueKind, ValueKind),
     #[error("unknown kind \"{0}\".")]
     UnknownKind(String),
+    #[error("was expecting one of \"function\", \"structure\", \"enumerate\", found \"{0}\".")]
+    UnknownToken(Token),
     #[error("could not parse \"{0}\" as a valid Integer value.")]
     IntegerParseFail(String),
     #[error("could not parse \"{0}\" as a valid Decimal value.")]

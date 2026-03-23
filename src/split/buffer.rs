@@ -1,6 +1,6 @@
 use super::error::*;
+use super::helper::*;
 use super::token::*;
-use super::utility::*;
 
 //================================================================
 
@@ -108,7 +108,7 @@ impl TokenBuffer {
         if let Some(next) = self.buffer.get(self.cursor) {
             self.cursor += 1;
 
-            if next.data.kind() == kind {
+            if next.class.kind() == kind {
                 return Ok(next.clone());
             } else {
                 return Err(Error::IncorrectKind(kind, next.clone()));
@@ -120,7 +120,7 @@ impl TokenBuffer {
 
     pub fn want_peek(&mut self, kind: TokenKind) -> bool {
         if let Some(next) = self.buffer.get(self.cursor)
-            && next.data.kind() == kind
+            && next.class.kind() == kind
         {
             return true;
         }

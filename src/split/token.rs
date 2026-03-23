@@ -1,5 +1,5 @@
 use super::buffer::*;
-use super::utility::*;
+use super::helper::*;
 
 //================================================================
 
@@ -10,7 +10,7 @@ use std::fmt::Display;
 #[derive(Debug, Clone)]
 pub struct Token {
     pub point: Point,
-    pub data: TokenData,
+    pub class: TokenClass,
 }
 
 impl Token {
@@ -99,7 +99,7 @@ impl Token {
     fn new(point: Point, text: &str) -> Self {
         Self {
             point,
-            data: TokenData::parse_text(text),
+            class: TokenClass::parse_text(text),
         }
     }
 }
@@ -107,15 +107,19 @@ impl Token {
 impl Display for Token {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        formatter.write_str(&format!("{}", self.data))
+        formatter.write_str(&format!("{}", self.class))
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum TokenData {
+pub enum TokenClass {
     String(String),
+    Integer(i32),
+    Decimal(f32),
+    Boolean(bool),
     Function,
     Structure,
+    Enumerate,
     Let,
     Use,
     For,
@@ -129,8 +133,8 @@ pub enum TokenData {
     Or,
     ParenthesisBegin,
     ParenthesisClose,
-    BracketBegin,
-    BracketClose,
+    CurlyBegin,
+    CurlyClose,
     Dot,
     Colon,
     Comma,
@@ -150,13 +154,17 @@ pub enum TokenData {
     //LTE,
 }
 
-impl Display for TokenData {
+impl Display for TokenClass {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             Self::String(text)     => formatter.write_str(text),
+            Self::Integer(text)    => formatter.write_str(&text.to_string()),
+            Self::Decimal(text)    => formatter.write_str(&text.to_string()),
+            Self::Boolean(text)    => formatter.write_str(&text.to_string()),
             Self::Function         => formatter.write_str("function"),
             Self::Structure        => formatter.write_str("structure"),
+            Self::Enumerate        => formatter.write_str("enumerate"),
             Self::Let              => formatter.write_str("let"),
             Self::Use              => formatter.write_str("use"),
             Self::For              => formatter.write_str("for"),
@@ -170,18 +178,18 @@ impl Display for TokenData {
             Self::Or               => formatter.write_str("or"),
             Self::ParenthesisBegin => formatter.write_str("("),
             Self::ParenthesisClose => formatter.write_str(")"),
-            Self::BracketBegin     => formatter.write_str("{"),
-            Self::BracketClose     => formatter.write_str("}"),
+            Self::CurlyBegin       => formatter.write_str("{"),
+            Self::CurlyClose       => formatter.write_str("}"),
             Self::Dot              => formatter.write_str("."),
             Self::Colon            => formatter.write_str(":"),
             Self::Comma            => formatter.write_str(","),
             Self::Ampersand        => formatter.write_str("&"),
-            Self::Assignment       => formatter.write_str(":="),
+            Self::Assignment       => formatter.write_str(":=")
         }
     }
 }
 
-impl TokenData {
+impl TokenClass {
     pub fn inner_string(&self) -> String {
         match self {
             Self::String(text) => text.clone(),
@@ -194,8 +202,11 @@ impl TokenData {
     #[rustfmt::skip]
     fn parse_text(text: &str) -> Self {
         match text {
+            "true"      => Self::Boolean(true),
+            "false"     => Self::Boolean(false),
             "function"  => Self::Function,
             "structure" => Self::Structure,
+            "enumerate" => Self::Enumerate,
             "let"       => Self::Let,
             "use"       => Self::Use,
             "for"       => Self::For,
@@ -207,20 +218,21 @@ impl TokenData {
             "or"        => Self::Or,
             "("         => Self::ParenthesisBegin,
             ")"         => Self::ParenthesisClose,
-            "{"         => Self::BracketBegin,
-            "}"         => Self::BracketClose,
+            "{"         => Self::CurlyBegin,
+            "}"         => Self::CurlyClose,
             "."         => Self::Dot,
             ":"         => Self::Colon,
             ","         => Self::Comma,
             "&"         => Self::Ampersand,
             ":="        => Self::Assignment,
             _ => {
-                Self::String(text.to_string())
-                //if let Some(immediate) = Immediate::parse(text) {
-                //    Self::Immediate(immediate)
-                //} else {
-                //    Self::String(text.to_string())
-                //}
+                if let Ok(decimal) = text.parse::<f32>() {
+                    Self::Decimal(decimal)
+                } else if let Ok(integer) = text.parse::<i32>() {
+                    Self::Integer(integer)
+                } else {
+                    Self::String(text.to_string())
+                }
             }
         }
     }
@@ -229,8 +241,12 @@ impl TokenData {
     pub fn kind(&self) -> TokenKind {
         match self {
             Self::String(_)        => TokenKind::String,
+            Self::Integer(_)       => TokenKind::Integer,
+            Self::Decimal(_)       => TokenKind::Decimal,
+            Self::Boolean(_)       => TokenKind::Boolean,
             Self::Function         => TokenKind::Function,
             Self::Structure        => TokenKind::Structure,
+            Self::Enumerate        => TokenKind::Enumerate,
             Self::Let              => TokenKind::Let,
             Self::Use              => TokenKind::Use,
             Self::For              => TokenKind::For,
@@ -244,8 +260,8 @@ impl TokenData {
             Self::Or               => TokenKind::Or,
             Self::ParenthesisBegin => TokenKind::ParenthesisBegin,
             Self::ParenthesisClose => TokenKind::ParenthesisClose,
-            Self::BracketBegin     => TokenKind::BracketBegin,
-            Self::BracketClose     => TokenKind::BracketClose,
+            Self::CurlyBegin       => TokenKind::CurlyBegin,
+            Self::CurlyClose       => TokenKind::CurlyClose,
             Self::Dot              => TokenKind::Dot,
             Self::Colon            => TokenKind::Colon,
             Self::Comma            => TokenKind::Comma,
@@ -258,8 +274,12 @@ impl TokenData {
 #[derive(Debug, PartialEq)]
 pub enum TokenKind {
     String,
+    Integer,
+    Decimal,
+    Boolean,
     Function,
     Structure,
+    Enumerate,
     Let,
     Use,
     For,
@@ -273,8 +293,8 @@ pub enum TokenKind {
     Or,
     ParenthesisBegin,
     ParenthesisClose,
-    BracketBegin,
-    BracketClose,
+    CurlyBegin,
+    CurlyClose,
     Dot,
     Colon,
     Comma,
@@ -286,9 +306,13 @@ impl Display for TokenKind {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Self::String           => formatter.write_str("string"),
+            Self::String           => formatter.write_str("String"),
+            Self::Integer          => formatter.write_str("Integer"),
+            Self::Decimal          => formatter.write_str("Decimal"),
+            Self::Boolean          => formatter.write_str("Boolean"),
             Self::Function         => formatter.write_str("function"),
             Self::Structure        => formatter.write_str("structure"),
+            Self::Enumerate        => formatter.write_str("enumerate"),
             Self::Let              => formatter.write_str("let"),
             Self::Use              => formatter.write_str("use"),
             Self::For              => formatter.write_str("for"),
@@ -302,8 +326,8 @@ impl Display for TokenKind {
             Self::Or               => formatter.write_str("or"),
             Self::ParenthesisBegin => formatter.write_str("("),
             Self::ParenthesisClose => formatter.write_str(")"),
-            Self::BracketBegin     => formatter.write_str("{"),
-            Self::BracketClose     => formatter.write_str("}"),
+            Self::CurlyBegin       => formatter.write_str("{"),
+            Self::CurlyClose       => formatter.write_str("}"),
             Self::Dot              => formatter.write_str("."),
             Self::Colon            => formatter.write_str(":"),
             Self::Comma            => formatter.write_str(","),

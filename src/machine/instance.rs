@@ -4,8 +4,8 @@ use super::scope::*;
 use super::value::*;
 use crate::parse::construct::*;
 use crate::split::buffer::*;
+use crate::split::helper::*;
 use crate::split::token::*;
-use crate::split::utility::*;
 
 //================================================================
 
@@ -17,6 +17,7 @@ impl<'a> Instance<'a> {
     pub fn new() -> Self {
         let mut scope = Scope::default();
 
+        /*
         scope.set_value(
             "print",
             Value::FunctionNative(Box::new(|mut argument| {
@@ -38,38 +39,14 @@ impl<'a> Instance<'a> {
                 Ok(Value::Null)
             })),
         );
+        */
 
         Self { scope }
     }
 
-    pub fn load_file(&mut self, path: &str) -> Result<(), crate::utility::error::Error> {
-        let mut token_buffer = TokenBuffer::new(Source::new_file(path)?);
-
-        while let Some(token) = token_buffer.next() {
-            match token.data {
-                TokenData::Function => {
-                    let value = Function::parse_token(&mut token_buffer)?;
-                    self.scope
-                        .set_value(&value.name.clone(), Value::Function(value));
-                }
-                /*
-                TokenData::Enumerate => {
-                    let value = Enumerate::parse_token(&mut token_buffer)?;
-                    scope.set_value(&value.name.clone(), Value::Enumerate(value));
-                }
-                */
-                TokenData::Structure => {
-                    let value = Structure::parse_token(&mut token_buffer)?;
-                    self.scope
-                        .set_value(&value.name.clone(), Value::Structure(value));
-                }
-                _ => {}
-            };
-        }
-
-        println!("scope: {:?}", self.scope);
-
-        Ok(())
+    pub fn load_file(&mut self, path: &str) -> Result<(), crate::helper::error::Error> {
+        self.scope
+            .parse_token(TokenBuffer::new(Source::new_file(path)?))
     }
 
     pub fn get_value(&self, name: &str) -> Option<&Value> {
@@ -95,12 +72,12 @@ impl<'a> Instance<'a> {
             match instruction {
                 Instruction::Assignment(assignment) => {
                     local.set_value(
-                        &assignment.variable.name,
-                        Value::parse_text(&assignment.variable.kind, &assignment.value)?,
+                        &assignment.variable.name.text,
+                        Value::parse_text(&assignment.variable.kind.text, &assignment.value)?,
                     );
                 }
                 Instruction::Invocation(invocation) => {
-                    if let Some(function) = local.get_value(&invocation.name) {
+                    if let Some(function) = local.get_value(&invocation.name.text) {
                         match function {
                             Value::Function(function) => {
                                 return Self::call_function_aux(

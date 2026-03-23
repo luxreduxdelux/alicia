@@ -4,11 +4,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("\x1b[31merror:\x1b[0m {0}")]
+    #[error("error: {0}")]
     Split(crate::split::error::Error),
-    #[error("\x1b[31merror:\x1b[0m {0}")]
+    #[error("error: {0}")]
     Parse(crate::parse::error::Error),
-    #[error("\x1b[31merror:\x1b[0m {0}")]
+    #[error("error: {0}")]
     Machine(crate::machine::error::Error),
 }
 

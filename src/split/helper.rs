@@ -45,8 +45,24 @@ pub struct Identifier {
     pub text: String,
 }
 
-impl Identifier {
-    pub fn new(text: String) -> Result<Self, Error> {
-        Ok(Self { text })
+impl TryFrom<String> for Identifier {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        for (i, character) in value.chars().enumerate() {
+            if i == 0 && character.is_numeric() {
+                return Err(Error::IncorrectIdentifierNumber(value, character));
+            } else if !(character.is_alphanumeric() || character == '_') {
+                return Err(Error::IncorrectIdentifierSymbol(value, character));
+            }
+        }
+
+        Ok(Self { text: value })
+    }
+}
+
+impl From<Identifier> for String {
+    fn from(value: Identifier) -> Self {
+        value.text
     }
 }

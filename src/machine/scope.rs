@@ -1,4 +1,8 @@
+use super::error::*;
 use super::value::*;
+use crate::parse::construct::*;
+use crate::split::buffer::*;
+use crate::split::token::*;
 
 //================================================================
 
@@ -32,5 +36,36 @@ impl<'a> Scope<'a> {
         } else {
             None
         }
+    }
+
+    pub fn parse_token(
+        &mut self,
+        mut token_buffer: TokenBuffer,
+    ) -> Result<(), crate::helper::error::Error> {
+        while let Some(token) = token_buffer.next() {
+            match token.class {
+                TokenClass::Function => {
+                    let value = Function::parse_token(&mut token_buffer)?;
+                    self.set_value(&value.name.text.clone(), Value::Function(value));
+                }
+                TokenClass::Structure => {
+                    let value = Structure::parse_token(&mut token_buffer)?;
+                    self.set_value(&value.name.text.clone(), Value::Structure(value));
+                }
+                TokenClass::Enumerate => {
+                    let value = Enumerate::parse_token(&mut token_buffer)?;
+                    self.set_value(&value.name.text.clone(), Value::Enumerate(value));
+                }
+                _ => {
+                    return Err(crate::helper::error::Error::Machine(Error::UnknownToken(
+                        token,
+                    )));
+                }
+            };
+        }
+
+        println!("scope: {:#?}", self);
+
+        Ok(())
     }
 }
