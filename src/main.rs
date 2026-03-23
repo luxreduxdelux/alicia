@@ -3,12 +3,18 @@ mod runtime;
 
 //================================================================
 
-use crate::parser::source::*;
+use crate::parser::error::*;
+use crate::runtime::instance::*;
 
 //================================================================
 
-fn main() {
-    if let Err(error) = Source::parse("test.alicia") {
-        println!("{error}");
-    }
+fn main() -> Result<(), AliciaError> {
+    let mut instance = Instance::new();
+    instance.load_file("test.alicia")?;
+    instance.execute_function(
+        &instance.get_value("main").unwrap().as_function()?,
+        Vec::default(),
+    )?;
+
+    Ok(())
 }

@@ -1,14 +1,10 @@
-use super::{error::*, token::*};
+use super::instance::*;
+use super::machine::*;
+use crate::parser::{error::*, token::*};
 
 //================================================================
 
-#[derive(Debug)]
-pub enum Declaration {
-    Function(Function),
-    // Structure(Structure)
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instruction {
     Assignment(Assignment),
     Invocation(Invocation),
@@ -28,7 +24,7 @@ impl Instruction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assignment {
     pub variable: Variable,
     pub value: String,
@@ -39,13 +35,13 @@ impl Assignment {
         token_buffer.want(TokenKind::Let)?;
         let variable = Variable::parse_token(token_buffer)?;
         token_buffer.want(TokenKind::Assignment)?;
-        let value = token_buffer.want(TokenKind::String)?.inner_string();
+        let value = token_buffer.want(TokenKind::String)?.data.inner_string();
 
         Ok(Self { variable, value })
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Invocation {
     pub name: String,
     pub list: Vec<String>,
@@ -53,21 +49,21 @@ pub struct Invocation {
 
 impl Invocation {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
-        let name = token_buffer.want(TokenKind::String)?.inner_string();
+        let name = token_buffer.want(TokenKind::String)?.data.inner_string();
         let mut list = Vec::new();
 
         token_buffer.want(TokenKind::ParenthesisBegin)?;
 
         while let Some(token) = token_buffer.peek() {
-            if token.kind() == TokenKind::ParenthesisClose {
+            if token.data.kind() == TokenKind::ParenthesisClose {
                 break;
             }
 
-            if token.kind() == TokenKind::Comma {
+            if token.data.kind() == TokenKind::Comma {
                 token_buffer.next();
             }
 
-            list.push(token_buffer.want(TokenKind::String)?.inner_string());
+            list.push(token_buffer.want(TokenKind::String)?.data.inner_string());
         }
 
         token_buffer.want(TokenKind::ParenthesisClose)?;
@@ -78,7 +74,7 @@ impl Invocation {
 
 //================================================================
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     pub list: Vec<Variable>,
@@ -86,11 +82,11 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn parse_token(token: &Token, token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
         let mut list = Vec::new();
         let mut code = Vec::new();
 
-        let name = token_buffer.want(TokenKind::String)?.inner_string();
+        let name = token_buffer.want(TokenKind::String)?.data.inner_string();
         token_buffer.want(TokenKind::ParenthesisBegin)?;
 
         // No argument branch.
@@ -98,11 +94,11 @@ impl Function {
             token_buffer.want(TokenKind::ParenthesisClose)?;
         } else {
             while let Some(token) = token_buffer.peek() {
-                if token.kind() == TokenKind::ParenthesisClose {
+                if token.data.kind() == TokenKind::ParenthesisClose {
                     break;
                 }
 
-                if token.kind() == TokenKind::Comma {
+                if token.data.kind() == TokenKind::Comma {
                     token_buffer.next();
                 }
 
@@ -117,11 +113,11 @@ impl Function {
         let mut bracket_begin = 1;
 
         while let Some(token) = token_buffer.peek() {
-            if token.kind() == TokenKind::BracketBegin {
+            if token.data.kind() == TokenKind::BracketBegin {
                 bracket_begin -= 1;
             }
 
-            if token.kind() == TokenKind::BracketClose {
+            if token.data.kind() == TokenKind::BracketClose {
                 bracket_begin -= 1;
             }
 
@@ -133,43 +129,10 @@ impl Function {
         }
 
         Ok(Self { name, list, code })
-
-        /*
-        while let Some(token) = iterator.next() {
-            match token {
-                Token::String(function_name) => {
-                    if name.is_none() {
-                        name = Some(function_name.to_string());
-                    } else {
-                        // report error here.
-                    }
-                }
-                Token::ParenthesisBegin => {
-                    while let Some(token) = iterator.next() {
-                        match token {
-                            _ => {}
-                        }
-                    }
-                }
-                Token::BracketBegin => {
-                    while let Some(token) = iterator.next() {
-                        match token {
-                            Token::BracketClose => {
-                                println!("finish bracket");
-                                break;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        */
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Variable {
     pub name: String,
     pub kind: String,
@@ -177,10 +140,52 @@ pub struct Variable {
 
 impl Variable {
     fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
-        let name = token_buffer.want(TokenKind::String)?.inner_string();
+        let name = token_buffer.want(TokenKind::String)?.data.inner_string();
         token_buffer.want(TokenKind::Colon)?;
-        let kind = token_buffer.want(TokenKind::String)?.inner_string();
+        let kind = token_buffer.want(TokenKind::String)?.data.inner_string();
 
         Ok(Self { name, kind })
     }
+}
+
+//================================================================
+
+#[derive(Debug)]
+pub struct Structure {
+    pub name: String,
+    pub list: Vec<Variable>,
+}
+
+impl Structure {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, AliciaError> {
+        let mut list = Vec::new();
+
+        let name = token_buffer.want(TokenKind::String)?.data.inner_string();
+
+        token_buffer.want(TokenKind::BracketBegin)?;
+
+        while let Some(token) = token_buffer.peek() {
+            if token.data.kind() == TokenKind::BracketClose {
+                break;
+            }
+
+            if token.data.kind() == TokenKind::Comma {
+                token_buffer.next();
+            }
+
+            list.push(Variable::parse_token(token_buffer)?);
+        }
+
+        token_buffer.want(TokenKind::BracketClose)?;
+
+        Ok(Self { name, list })
+    }
+}
+
+//================================================================
+
+#[derive(Debug)]
+pub struct Enumerate {
+    pub name: String,
+    pub list: Vec<Variable>,
 }
