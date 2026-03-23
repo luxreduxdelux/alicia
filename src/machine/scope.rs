@@ -56,6 +56,11 @@ impl<'a> Scope<'a> {
                     let value = Enumerate::parse_token(&mut token_buffer)?;
                     self.set_value(&value.name.text.clone(), Value::Enumerate(value));
                 }
+                TokenClass::Use => {
+                    let value = Use::parse_token(&mut token_buffer)?;
+                    println!("use: {value:?}");
+                    //self.set_value(&String::from(value.path.into()), Value::Use(value));
+                }
                 _ => {
                     return Err(crate::helper::error::Error::Machine(Error::UnknownToken(
                         token,

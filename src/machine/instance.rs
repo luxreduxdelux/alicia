@@ -5,7 +5,6 @@ use super::value::*;
 use crate::parse::construct::*;
 use crate::split::buffer::*;
 use crate::split::helper::*;
-use crate::split::token::*;
 
 //================================================================
 

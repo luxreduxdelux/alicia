@@ -50,7 +50,7 @@ impl Token {
 
                     inside_string = !inside_string;
                 }
-                '(' | ')' | ',' | ':' | '<' | '>' => {
+                '(' | ')' | '{' | '}' | '.' | ':' | ',' | '&' | '<' | '>' => {
                     if !inside_string {
                         if let Some(peek) = line_buffer.peek() {
                             let assignment = character == ':' && peek == '=';

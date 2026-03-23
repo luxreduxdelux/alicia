@@ -85,19 +85,29 @@ impl Invocation {
 
 #[derive(Debug, Clone)]
 pub struct Function {
+    pub name_structure: Option<Identifier>,
     pub name: Identifier,
-    pub list: Vec<Variable>,
+    pub enter: Vec<Variable>,
+    pub leave: Option<Identifier>,
     pub code: Vec<Instruction>,
 }
 
 impl Function {
+    #[rustfmt::skip]
     pub fn parse_token(
         token_buffer: &mut TokenBuffer,
     ) -> Result<Self, crate::helper::error::Error> {
-        let mut list = Vec::new();
-        let mut code = Vec::new();
+        let mut name_structure = None;
+        let mut name           = token_buffer.want(TokenKind::String)?.class.inner_string();
+        let mut enter          = Vec::new();
+        let mut leave          = None;
+        let mut code           = Vec::new();
 
-        let name = token_buffer.want(TokenKind::String)?.class.inner_string();
+        if token_buffer.want_peek(TokenKind::Dot) {
+            token_buffer.want(TokenKind::Dot)?;
+            name_structure = Some(name.try_into()?);
+            name = token_buffer.want(TokenKind::String)?.class.inner_string();
+        }
 
         token_buffer.want(TokenKind::ParenthesisBegin)?;
 
@@ -114,10 +124,21 @@ impl Function {
                     token_buffer.next();
                 }
 
-                list.push(Variable::parse_token(token_buffer)?);
+                enter.push(Variable::parse_token(token_buffer)?);
             }
 
             token_buffer.want(TokenKind::ParenthesisClose)?;
+        }
+
+        if token_buffer.want_peek(TokenKind::Colon) {
+            token_buffer.want(TokenKind::Colon)?;
+            leave = Some(
+                token_buffer
+                    .want(TokenKind::String)?
+                    .class
+                    .inner_string()
+                    .try_into()?,
+            );
         }
 
         token_buffer.want(TokenKind::CurlyBegin)?;
@@ -143,8 +164,10 @@ impl Function {
         token_buffer.want(TokenKind::CurlyClose)?;
 
         Ok(Self {
+            name_structure,
             name: name.try_into()?,
-            list,
+            enter,
+            leave,
             code,
         })
     }
@@ -154,17 +177,27 @@ impl Function {
 pub struct Variable {
     pub name: Identifier,
     pub kind: Identifier,
+    pub reference: bool,
 }
 
 impl Variable {
     fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, crate::helper::error::Error> {
         let name = token_buffer.want(TokenKind::String)?.class.inner_string();
         token_buffer.want(TokenKind::Colon)?;
+
+        let reference = if token_buffer.want_peek(TokenKind::Ampersand) {
+            token_buffer.want(TokenKind::Ampersand)?;
+            true
+        } else {
+            false
+        };
+
         let kind = token_buffer.want(TokenKind::String)?.class.inner_string();
 
         Ok(Self {
             name: name.try_into()?,
             kind: kind.try_into()?,
+            reference,
         })
     }
 }
@@ -250,5 +283,32 @@ impl Enumerate {
             name: name.try_into()?,
             list,
         })
+    }
+}
+
+//================================================================
+
+#[derive(Debug)]
+pub struct Use {
+    pub path: Path,
+}
+
+impl Use {
+    pub fn parse_token(
+        token_buffer: &mut TokenBuffer,
+    ) -> Result<Self, crate::helper::error::Error> {
+        let mut path = Path::default();
+
+        while let Some(token) = token_buffer.peek() {
+            if token.class.kind() == TokenKind::String {
+                path.push(token_buffer.want(TokenKind::String)?.class.inner_string())?;
+            } else if token.class.kind() == TokenKind::Dot {
+                token_buffer.want(TokenKind::Dot)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(Self { path })
     }
 }

@@ -66,3 +66,29 @@ impl From<Identifier> for String {
         value.text
     }
 }
+
+//================================================================
+
+#[derive(Debug, Clone, Default)]
+pub struct Path {
+    pub list: Vec<Identifier>,
+}
+
+impl From<Path> for String {
+    fn from(value: Path) -> Self {
+        let mut string = String::new();
+
+        for identifier in value.list {
+            string.push_str(&identifier.text);
+        }
+
+        string
+    }
+}
+
+impl Path {
+    pub fn push(&mut self, text: String) -> Result<(), Error> {
+        self.list.push(text.try_into()?);
+        Ok(())
+    }
+}

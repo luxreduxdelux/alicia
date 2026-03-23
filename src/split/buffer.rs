@@ -28,16 +28,6 @@ impl LineBuffer {
         None
     }
 
-    fn want_peek(&mut self, character: char) -> bool {
-        if let Some(next) = self.buffer_line.chars().nth(self.cursor) {
-            if next == character {
-                return true;
-            }
-        }
-
-        false
-    }
-
     pub fn peek(&self) -> Option<char> {
         if let Some(next) = self.buffer_line.chars().nth(self.cursor) {
             return Some(next);
@@ -81,8 +71,6 @@ impl TokenBuffer {
         for (i, line) in source.data.lines().enumerate() {
             Token::parse_line(line, i, &mut buffer);
         }
-
-        println!("token list: {buffer:#?}");
 
         Self {
             source,
