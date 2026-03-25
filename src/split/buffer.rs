@@ -83,6 +83,14 @@ impl TokenBuffer {
         println!("{:?}", &self.buffer[self.cursor..self.buffer.len()]);
     }
 
+    pub fn get_cursor(&self) -> usize {
+        self.cursor
+    }
+
+    pub fn set_cursor(&mut self, cursor: usize) {
+        self.cursor = cursor
+    }
+
     pub fn next(&mut self) -> Option<Token> {
         if let Some(next) = self.buffer.get(self.cursor) {
             self.cursor += 1;
@@ -162,6 +170,33 @@ impl TokenBuffer {
                     Some(hint),
                 ));
             };
+        }
+
+        return Err(Error::new_info(
+            ErrorInfo::new(self.source.clone(), self.previous()),
+            ErrorKind::ExpectingKind(TokenKind::String),
+            Some(hint),
+        ));
+    }
+
+    pub fn want_definition(&mut self, hint: ErrorHint) -> Result<Token, Error> {
+        if let Some(next) = self.buffer.get(self.cursor) {
+            self.cursor += 1;
+
+            match next.class.kind() {
+                TokenKind::Definition
+                | TokenKind::DefinitionAdd
+                | TokenKind::DefinitionSubtract
+                | TokenKind::DefinitionMultiply
+                | TokenKind::DefinitionDivide => return Ok(next.clone()),
+                _ => {
+                    return Err(Error::new_info(
+                        ErrorInfo::new(self.source.clone(), Some(next.clone())),
+                        ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
+                        Some(hint),
+                    ));
+                }
+            }
         }
 
         return Err(Error::new_info(

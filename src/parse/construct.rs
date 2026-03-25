@@ -7,41 +7,52 @@ use crate::split::token::*;
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
-    Assignment(Assignment),
+    Definition(Definition),
     Invocation(Invocation),
 }
 
 impl Instruction {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        if token_buffer.want_peek(TokenKind::Let) {
-            return Ok(Self::Assignment(Assignment::parse_token(token_buffer)?));
-        } else if token_buffer.want_peek(TokenKind::String) {
+        // TO-DO for, while, if
+
+        if token_buffer.want_peek(TokenKind::String) {
+            let cursor = token_buffer.get_cursor();
+
+            if let Ok(definition) = Definition::parse_token(token_buffer) {
+                return Ok(Self::Definition(definition));
+            }
+
+            token_buffer.set_cursor(cursor);
             return Ok(Self::Invocation(Invocation::parse_token(token_buffer)?));
         }
 
-        token_buffer.print_state();
+        let token = token_buffer.next();
 
-        todo!()
+        Err(Error::new_info(
+            token_buffer.get_error_info(token.clone()),
+            ErrorKind::UnknownToken(token.unwrap()),
+            Some(ErrorHint::Function),
+        ))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Assignment {
-    pub variable: Variable,
+pub struct Definition {
+    pub name: Identifier,
+    pub kind: Token,
     pub value: String,
 }
 
-impl Assignment {
+impl Definition {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.want(TokenKind::Let, ErrorHint::Assignment)?;
-        let variable = Variable::parse_token(token_buffer)?;
-        token_buffer.want(TokenKind::Assignment, ErrorHint::Assignment)?;
+        let name = token_buffer.want_identifier(ErrorHint::Definition)?;
+        let kind = token_buffer.want_definition(ErrorHint::Definition)?;
         let value = token_buffer
-            .want(TokenKind::String, ErrorHint::Assignment)?
+            .want(TokenKind::String, ErrorHint::Definition)?
             .class
             .inner_string();
 
-        Ok(Self { variable, value })
+        Ok(Self { name, kind, value })
     }
 }
 

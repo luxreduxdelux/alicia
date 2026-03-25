@@ -1,3 +1,4 @@
+use helper::error::*;
 use parse::construct::*;
 use split::{buffer::TokenBuffer, helper::Source, token::*};
 
@@ -16,7 +17,7 @@ enum Declaration {
     Enumerate(Enumerate),
 }
 
-fn run() -> Result<(), crate::helper::error::Error> {
+fn run() -> Result<(), Error> {
     let mut buffer = TokenBuffer::new(Source::new_file("src/test.alicia")?);
     let mut vector = Vec::new();
 
@@ -36,7 +37,11 @@ fn run() -> Result<(), crate::helper::error::Error> {
                 println!("use: {value:?}");
             }
             _ => {
-                //return Err(Error::new());
+                return Err(Error::new_info(
+                    buffer.get_error_info(Some(token.clone())),
+                    ErrorKind::UnknownTokenGlobal(token),
+                    Some(ErrorHint::Global),
+                ));
             }
         };
     }

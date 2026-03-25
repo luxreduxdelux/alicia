@@ -30,40 +30,67 @@ impl Error {
             hint,
         }
     }
+
+    fn text_box(file: &str, text: &str, line: usize, character: usize) -> String {
+        let mut text_box = String::default();
+        let line_size = line.to_string().len() + 2;
+
+        text_box.push('\n');
+
+        text_box.push('╭');
+        text_box.push_str(&'─'.to_string().repeat(line_size));
+        text_box.push('🭬');
+        text_box.push_str(file);
+        text_box.push('\n');
+
+        text_box.push('│');
+        text_box.push_str(&' '.to_string().repeat(line_size));
+        text_box.push('│');
+        text_box.push('\n');
+
+        text_box.push('│');
+        text_box.push(' ');
+        text_box.push_str(&line.to_string());
+        text_box.push(' ');
+        text_box.push('│');
+        text_box.push(' ');
+        text_box.push_str(text);
+        text_box.push('\n');
+
+        text_box.push('│');
+        text_box.push_str(&' '.to_string().repeat(line_size));
+        text_box.push('│');
+        text_box.push_str(&' '.to_string().repeat(character));
+        text_box.push('─');
+        text_box.push('\n');
+
+        text_box.push('╰');
+        text_box.push_str(&'─'.to_string().repeat(line_size + 1));
+
+        text_box
+    }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let info = if let Some(info) = &self.info {
+        let text = if let Some(info) = &self.info {
             if let Some(token) = &info.token {
-                format!(
-                    "\"{}\":{}:{}, ",
-                    info.source.path,
+                let code = info.source.data.lines().nth(token.point.y).unwrap();
+
+                Self::text_box(
+                    &format!(
+                        "{}:{}:{}",
+                        info.source.path,
+                        token.point.y + 1,
+                        token.point.x
+                    ),
+                    code,
                     token.point.y + 1,
-                    token.point.x + 1
+                    token.point.x,
                 )
             } else {
-                format!(" \"{}\", ", info.source.path)
+                format!("\n{}", info.source.path)
             }
-        } else {
-            "".to_string()
-        };
-
-        let text = if let Some(info) = &self.info
-            && let Some(token) = &info.token
-        {
-            let code = info.source.data.lines().nth(token.point.y).unwrap();
-            let mut line = String::new();
-
-            for i in 0..token.point.x {
-                if i == token.point.x - 1 {
-                    line.push('^');
-                } else {
-                    line.push('.');
-                }
-            }
-
-            format!("\n{code}\n{line}")
         } else {
             "".to_string()
         };
@@ -74,10 +101,7 @@ impl Display for Error {
             (String::default(), String::default())
         };
 
-        f.write_str(&format!(
-            "error{context}: {info}{}\n{text}\n\n{hint}",
-            self.kind
-        ))
+        f.write_str(&format!("error{context}: {}{text}{hint}", self.kind))
     }
 }
 
@@ -97,7 +121,8 @@ impl ErrorInfo {
 //================================================================
 
 pub enum ErrorHint {
-    Assignment,
+    Global,
+    Definition,
     Invocation,
     Function,
     Variable,
@@ -109,28 +134,35 @@ pub enum ErrorHint {
 impl ErrorHint {
     fn help(&self) -> (String, String) {
         match self {
-            ErrorHint::Assignment => (
-                " parsing assignment".to_string(),
-                "help: let foo : String := \"hello\"".to_string(),
+            ErrorHint::Global => (" parsing global".to_string(), String::default()),
+            ErrorHint::Definition => (
+                " parsing definition".to_string(),
+                "\nexample definition: let foo : String := \"hello\"".to_string(),
             ),
-            ErrorHint::Invocation => (" parsing invocation".to_string(), "help: foo()".to_string()),
+            ErrorHint::Invocation => (
+                " parsing invocation".to_string(),
+                "\nexample invocation: foo()".to_string(),
+            ),
             ErrorHint::Variable => (
                 " parsing variable".to_string(),
-                "help: foo : String".to_string(),
+                "\nexample variable: foo : String".to_string(),
             ),
             ErrorHint::Function => (
                 " parsing function".to_string(),
-                "help: function foo(a: String) { }".to_string(),
+                "\nexample function: function foo(a: String) { }".to_string(),
             ),
             ErrorHint::Structure => (
                 " parsing structure".to_string(),
-                "help: structure foo { a: String }".to_string(),
+                "\nexample strcuture: structure foo { a: String }".to_string(),
             ),
             ErrorHint::Enumerate => (
                 " parsing enumerate".to_string(),
-                "help: enumerate foo { a, b, c }".to_string(),
+                "\nexample enumerate: enumerate foo { a, b, c }".to_string(),
             ),
-            _ => (String::default(), String::default()),
+            ErrorHint::Use => (
+                " parsing use".to_string(),
+                "\nexample use: use module_name".to_string(),
+            ),
         }
     }
 }
@@ -142,6 +174,8 @@ pub enum ErrorKind {
     #[error(
         "was expecting one of \"function\", \"structure\", \"enumerate\", \"use\", found \"{0}\"."
     )]
+    UnknownTokenGlobal(Token),
+    #[error("unknown token \"{0}\".")]
     UnknownToken(Token),
     #[error("could not parse \"{0}\" as a valid Integer value.")]
     IntegerParseFail(String),
