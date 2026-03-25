@@ -1,52 +1,19 @@
-use helper::error::*;
-use parse::construct::*;
-use split::{buffer::TokenBuffer, helper::Source, token::*};
-
 mod helper;
-mod parse;
-mod split;
+mod stage_1; // Lexer stage.
+mod stage_2; // Parser stage.
+mod stage_3; // Analyzer stage.
+mod stage_4; // Run-time stage.
 
 //================================================================
 
-//================================================================
+use helper::error::*;
+use stage_1::{buffer::TokenBuffer, helper::Source};
+use stage_2::scope::*;
 
-#[derive(Debug)]
-enum Declaration {
-    Function(Function),
-    Structure(Structure),
-    Enumerate(Enumerate),
-}
+//================================================================
 
 fn run() -> Result<(), Error> {
-    let mut buffer = TokenBuffer::new(Source::new_file("src/test.alicia")?);
-    let mut vector = Vec::new();
-
-    while let Some(token) = buffer.next() {
-        match token.class {
-            TokenClass::Function => {
-                vector.push(Declaration::Function(Function::parse_token(&mut buffer)?));
-            }
-            TokenClass::Structure => {
-                vector.push(Declaration::Structure(Structure::parse_token(&mut buffer)?));
-            }
-            TokenClass::Enumerate => {
-                vector.push(Declaration::Enumerate(Enumerate::parse_token(&mut buffer)?));
-            }
-            TokenClass::Use => {
-                let value = Use::parse_token(&mut buffer)?;
-                println!("use: {value:?}");
-            }
-            _ => {
-                return Err(Error::new_info(
-                    buffer.get_error_info(Some(token.clone())),
-                    ErrorKind::UnknownTokenGlobal(token),
-                    Some(ErrorHint::Global),
-                ));
-            }
-        };
-    }
-
-    println!("{vector:#?}");
+    Scope::new(TokenBuffer::new(Source::new_file("src/test.alicia")?))?;
 
     Ok(())
 }

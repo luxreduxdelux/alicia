@@ -1,5 +1,5 @@
-use crate::split::helper::*;
-use crate::split::token::*;
+use crate::stage_1::helper::*;
+use crate::stage_1::token::*;
 
 //================================================================
 
@@ -9,17 +9,17 @@ use thiserror::Error;
 //================================================================
 
 pub struct Error {
-    info: Option<ErrorInfo>,
-    hint: Option<ErrorHint>,
+    info: Option<Box<ErrorInfo>>,
+    hint: Option<Box<ErrorHint>>,
     kind: ErrorKind,
 }
 
 impl Error {
     pub fn new_info(info: ErrorInfo, kind: ErrorKind, hint: Option<ErrorHint>) -> Self {
         Self {
-            info: Some(info),
+            info: Some(Box::new(info)),
             kind,
-            hint,
+            hint: hint.map(Box::new),
         }
     }
 
@@ -27,7 +27,7 @@ impl Error {
         Self {
             info: None,
             kind,
-            hint,
+            hint: hint.map(Box::new),
         }
     }
 
