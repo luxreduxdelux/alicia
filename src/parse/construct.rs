@@ -1,3 +1,4 @@
+use crate::helper::error::*;
 use crate::split::buffer::*;
 use crate::split::helper::*;
 use crate::split::token::*;
@@ -11,9 +12,7 @@ pub enum Instruction {
 }
 
 impl Instruction {
-    pub fn parse_token(
-        token_buffer: &mut TokenBuffer,
-    ) -> Result<Self, crate::helper::error::Error> {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         if token_buffer.want_peek(TokenKind::Let) {
             return Ok(Self::Assignment(Assignment::parse_token(token_buffer)?));
         } else if token_buffer.want_peek(TokenKind::String) {
@@ -33,13 +32,14 @@ pub struct Assignment {
 }
 
 impl Assignment {
-    pub fn parse_token(
-        token_buffer: &mut TokenBuffer,
-    ) -> Result<Self, crate::helper::error::Error> {
-        token_buffer.want(TokenKind::Let)?;
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.want(TokenKind::Let, ErrorHint::Assignment)?;
         let variable = Variable::parse_token(token_buffer)?;
-        token_buffer.want(TokenKind::Assignment)?;
-        let value = token_buffer.want(TokenKind::String)?.class.inner_string();
+        token_buffer.want(TokenKind::Assignment, ErrorHint::Assignment)?;
+        let value = token_buffer
+            .want(TokenKind::String, ErrorHint::Assignment)?
+            .class
+            .inner_string();
 
         Ok(Self { variable, value })
     }
@@ -52,13 +52,11 @@ pub struct Invocation {
 }
 
 impl Invocation {
-    pub fn parse_token(
-        token_buffer: &mut TokenBuffer,
-    ) -> Result<Self, crate::helper::error::Error> {
-        let name = token_buffer.want(TokenKind::String)?.class.inner_string();
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        let name = token_buffer.want_identifier(ErrorHint::Invocation)?;
         let mut list = Vec::new();
 
-        token_buffer.want(TokenKind::ParenthesisBegin)?;
+        token_buffer.want(TokenKind::ParenthesisBegin, ErrorHint::Invocation)?;
 
         while let Some(token) = token_buffer.peek() {
             if token.class.kind() == TokenKind::ParenthesisClose {
@@ -69,15 +67,17 @@ impl Invocation {
                 token_buffer.next();
             }
 
-            list.push(token_buffer.want(TokenKind::String)?.class.inner_string());
+            list.push(
+                token_buffer
+                    .want(TokenKind::String, ErrorHint::Invocation)?
+                    .class
+                    .inner_string(),
+            );
         }
 
-        token_buffer.want(TokenKind::ParenthesisClose)?;
+        token_buffer.want(TokenKind::ParenthesisClose, ErrorHint::Invocation)?;
 
-        Ok(Self {
-            name: name.try_into()?,
-            list,
-        })
+        Ok(Self { name, list })
     }
 }
 
@@ -96,24 +96,24 @@ impl Function {
     #[rustfmt::skip]
     pub fn parse_token(
         token_buffer: &mut TokenBuffer,
-    ) -> Result<Self, crate::helper::error::Error> {
+    ) -> Result<Self, Error> {
         let mut name_structure = None;
-        let mut name           = token_buffer.want(TokenKind::String)?.class.inner_string();
+        let mut name           = token_buffer.want_identifier(ErrorHint::Function)?;
         let mut enter          = Vec::new();
         let mut leave          = None;
         let mut code           = Vec::new();
 
         if token_buffer.want_peek(TokenKind::Dot) {
-            token_buffer.want(TokenKind::Dot)?;
-            name_structure = Some(name.try_into()?);
-            name = token_buffer.want(TokenKind::String)?.class.inner_string();
+            token_buffer.want(TokenKind::Dot, ErrorHint::Function)?;
+            name_structure = Some(name);
+            name = token_buffer.want_identifier(ErrorHint::Function)?;
         }
 
-        token_buffer.want(TokenKind::ParenthesisBegin)?;
+        token_buffer.want(TokenKind::ParenthesisBegin, ErrorHint::Function)?;
 
         // No argument branch.
         if token_buffer.want_peek(TokenKind::ParenthesisClose) {
-            token_buffer.want(TokenKind::ParenthesisClose)?;
+            token_buffer.want(TokenKind::ParenthesisClose, ErrorHint::Function)?;
         } else {
             while let Some(token) = token_buffer.peek() {
                 if token.class.kind() == TokenKind::ParenthesisClose {
@@ -127,21 +127,17 @@ impl Function {
                 enter.push(Variable::parse_token(token_buffer)?);
             }
 
-            token_buffer.want(TokenKind::ParenthesisClose)?;
+            token_buffer.want(TokenKind::ParenthesisClose, ErrorHint::Function)?;
         }
 
         if token_buffer.want_peek(TokenKind::Colon) {
-            token_buffer.want(TokenKind::Colon)?;
+            token_buffer.want(TokenKind::Colon, ErrorHint::Function)?;
             leave = Some(
-                token_buffer
-                    .want(TokenKind::String)?
-                    .class
-                    .inner_string()
-                    .try_into()?,
+                token_buffer.want_identifier(ErrorHint::Function)?,
             );
         }
 
-        token_buffer.want(TokenKind::CurlyBegin)?;
+        token_buffer.want(TokenKind::CurlyBegin, ErrorHint::Function)?;
 
         let mut bracket_begin = 1;
 
@@ -161,11 +157,11 @@ impl Function {
             code.push(Instruction::parse_token(token_buffer)?);
         }
 
-        token_buffer.want(TokenKind::CurlyClose)?;
+        token_buffer.want(TokenKind::CurlyClose, ErrorHint::Function)?;
 
         Ok(Self {
             name_structure,
-            name: name.try_into()?,
+            name,
             enter,
             leave,
             code,
@@ -181,22 +177,22 @@ pub struct Variable {
 }
 
 impl Variable {
-    fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, crate::helper::error::Error> {
-        let name = token_buffer.want(TokenKind::String)?.class.inner_string();
-        token_buffer.want(TokenKind::Colon)?;
+    fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        let name = token_buffer.want_identifier(ErrorHint::Variable)?;
+        token_buffer.want(TokenKind::Colon, ErrorHint::Variable)?;
 
         let reference = if token_buffer.want_peek(TokenKind::Ampersand) {
-            token_buffer.want(TokenKind::Ampersand)?;
+            token_buffer.want(TokenKind::Ampersand, ErrorHint::Variable)?;
             true
         } else {
             false
         };
 
-        let kind = token_buffer.want(TokenKind::String)?.class.inner_string();
+        let kind = token_buffer.want_identifier(ErrorHint::Variable)?;
 
         Ok(Self {
-            name: name.try_into()?,
-            kind: kind.try_into()?,
+            name,
+            kind,
             reference,
         })
     }
@@ -211,14 +207,12 @@ pub struct Structure {
 }
 
 impl Structure {
-    pub fn parse_token(
-        token_buffer: &mut TokenBuffer,
-    ) -> Result<Self, crate::helper::error::Error> {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         let mut list = Vec::new();
 
-        let name = token_buffer.want(TokenKind::String)?.class.inner_string();
+        let name = token_buffer.want_identifier(ErrorHint::Structure)?;
 
-        token_buffer.want(TokenKind::CurlyBegin)?;
+        token_buffer.want(TokenKind::CurlyBegin, ErrorHint::Structure)?;
 
         while let Some(token) = token_buffer.peek() {
             if token.class.kind() == TokenKind::CurlyClose {
@@ -232,12 +226,9 @@ impl Structure {
             list.push(Variable::parse_token(token_buffer)?);
         }
 
-        token_buffer.want(TokenKind::CurlyClose)?;
+        token_buffer.want(TokenKind::CurlyClose, ErrorHint::Structure)?;
 
-        Ok(Self {
-            name: name.try_into()?,
-            list,
-        })
+        Ok(Self { name, list })
     }
 }
 
@@ -250,14 +241,12 @@ pub struct Enumerate {
 }
 
 impl Enumerate {
-    pub fn parse_token(
-        token_buffer: &mut TokenBuffer,
-    ) -> Result<Self, crate::helper::error::Error> {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         let mut list = Vec::new();
 
-        let name = token_buffer.want(TokenKind::String)?.class.inner_string();
+        let name = token_buffer.want_identifier(ErrorHint::Enumerate)?;
 
-        token_buffer.want(TokenKind::CurlyBegin)?;
+        token_buffer.want(TokenKind::CurlyBegin, ErrorHint::Enumerate)?;
 
         while let Some(token) = token_buffer.peek() {
             if token.class.kind() == TokenKind::CurlyClose {
@@ -268,21 +257,12 @@ impl Enumerate {
                 token_buffer.next();
             }
 
-            list.push(
-                token_buffer
-                    .want(TokenKind::String)?
-                    .class
-                    .inner_string()
-                    .try_into()?,
-            );
+            list.push(token_buffer.want_identifier(ErrorHint::Enumerate)?);
         }
 
-        token_buffer.want(TokenKind::CurlyClose)?;
+        token_buffer.want(TokenKind::CurlyClose, ErrorHint::Enumerate)?;
 
-        Ok(Self {
-            name: name.try_into()?,
-            list,
-        })
+        Ok(Self { name, list })
     }
 }
 
@@ -294,16 +274,14 @@ pub struct Use {
 }
 
 impl Use {
-    pub fn parse_token(
-        token_buffer: &mut TokenBuffer,
-    ) -> Result<Self, crate::helper::error::Error> {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         let mut path = Path::default();
 
         while let Some(token) = token_buffer.peek() {
             if token.class.kind() == TokenKind::String {
-                path.push(token_buffer.want(TokenKind::String)?.class.inner_string())?;
+                path.push(token_buffer.want_identifier(ErrorHint::Use)?);
             } else if token.class.kind() == TokenKind::Dot {
-                token_buffer.want(TokenKind::Dot)?;
+                token_buffer.want(TokenKind::Dot, ErrorHint::Use)?;
             } else {
                 break;
             }

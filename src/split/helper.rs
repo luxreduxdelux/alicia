@@ -1,7 +1,8 @@
-use super::error::*;
+use crate::helper::error::*;
 
 //================================================================
 
+#[derive(Debug, Clone)]
 pub struct Source {
     pub path: String,
     pub data: String,
@@ -19,7 +20,10 @@ impl Source {
                 data,
             })
         } else {
-            Err(Error::FileNotFound(path.to_string()))
+            Err(Error::new_kind(
+                ErrorKind::FileNotFound(path.to_string()),
+                None,
+            ))
         }
     }
 }
@@ -46,14 +50,14 @@ pub struct Identifier {
 }
 
 impl TryFrom<String> for Identifier {
-    type Error = Error;
+    type Error = ErrorKind;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    fn try_from(value: String) -> Result<Self, ErrorKind> {
         for (i, character) in value.chars().enumerate() {
             if i == 0 && character.is_numeric() {
-                return Err(Error::IncorrectIdentifierNumber(value, character));
+                return Err(ErrorKind::IncorrectIdentifierNumber(value, character));
             } else if !(character.is_alphanumeric() || character == '_') {
-                return Err(Error::IncorrectIdentifierSymbol(value, character));
+                return Err(ErrorKind::IncorrectIdentifierSymbol(value, character));
             }
         }
 
@@ -87,8 +91,7 @@ impl From<Path> for String {
 }
 
 impl Path {
-    pub fn push(&mut self, text: String) -> Result<(), Error> {
-        self.list.push(text.try_into()?);
-        Ok(())
+    pub fn push(&mut self, text: Identifier) -> () {
+        self.list.push(text);
     }
 }

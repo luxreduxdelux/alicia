@@ -1,6 +1,6 @@
-use super::error::*;
 use super::helper::*;
 use super::token::*;
+use crate::helper::error::*;
 
 //================================================================
 
@@ -92,18 +92,34 @@ impl TokenBuffer {
         None
     }
 
-    pub fn want(&mut self, kind: TokenKind) -> Result<Token, Error> {
+    pub fn previous(&self) -> Option<Token> {
+        if let Some(previous) = self.buffer.get(self.cursor.saturating_sub(1)) {
+            return Some(previous.clone());
+        }
+
+        None
+    }
+
+    pub fn want(&mut self, kind: TokenKind, hint: ErrorHint) -> Result<Token, Error> {
         if let Some(next) = self.buffer.get(self.cursor) {
             self.cursor += 1;
 
             if next.class.kind() == kind {
                 return Ok(next.clone());
             } else {
-                return Err(Error::IncorrectKind(kind, next.clone()));
+                return Err(Error::new_info(
+                    ErrorInfo::new(self.source.clone(), Some(next.clone())),
+                    ErrorKind::IncorrectTokenKind(kind, next.clone()),
+                    Some(hint),
+                ));
             }
         }
 
-        Err(Error::ExpectingKind(kind))
+        return Err(Error::new_info(
+            ErrorInfo::new(self.source.clone(), self.previous()),
+            ErrorKind::ExpectingKind(kind),
+            Some(hint),
+        ));
     }
 
     pub fn want_peek(&mut self, kind: TokenKind) -> bool {
@@ -122,5 +138,40 @@ impl TokenBuffer {
         }
 
         None
+    }
+
+    pub fn want_identifier(&mut self, hint: ErrorHint) -> Result<Identifier, Error> {
+        if let Some(next) = self.buffer.get(self.cursor) {
+            self.cursor += 1;
+
+            if next.class.kind() == TokenKind::String {
+                match next.class.inner_string().try_into() {
+                    Ok(identifier) => return Ok(identifier),
+                    Err(error) => {
+                        return Err(Error::new_info(
+                            ErrorInfo::new(self.source.clone(), Some(next.clone())),
+                            error,
+                            Some(hint),
+                        ));
+                    }
+                }
+            } else {
+                return Err(Error::new_info(
+                    ErrorInfo::new(self.source.clone(), Some(next.clone())),
+                    ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
+                    Some(hint),
+                ));
+            };
+        }
+
+        return Err(Error::new_info(
+            ErrorInfo::new(self.source.clone(), self.previous()),
+            ErrorKind::ExpectingKind(TokenKind::String),
+            Some(hint),
+        ));
+    }
+
+    pub fn get_error_info(&self, token: Option<Token>) -> ErrorInfo {
+        ErrorInfo::new(self.source.clone(), token)
     }
 }
