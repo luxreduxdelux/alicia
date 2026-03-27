@@ -148,6 +148,14 @@ impl TokenBuffer {
         None
     }
 
+    pub fn peek_ahead(&self, ahead: usize) -> Option<Token> {
+        if let Some(next) = self.buffer.get(self.cursor + ahead) {
+            return Some(next.clone());
+        }
+
+        None
+    }
+
     pub fn want_identifier(&mut self, hint: ErrorHint) -> Result<Identifier, Error> {
         if let Some(next) = self.buffer.get(self.cursor) {
             self.cursor += 1;

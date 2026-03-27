@@ -15,6 +15,7 @@ enum Declaration {
     Function(Function),
     Structure(Structure),
     Enumerate(Enumerate),
+    Definition(Definition),
 }
 
 pub struct Scope {
@@ -38,6 +39,10 @@ impl Scope {
                 TokenClass::Enumerate => {
                     let enumerate = Enumerate::parse_token(&mut token_buffer)?;
                     symbol.insert(enumerate.name.clone(), Declaration::Enumerate(enumerate));
+                }
+                TokenClass::Let => {
+                    let definition = Definition::parse_token(&mut token_buffer)?;
+                    symbol.insert(definition.name.clone(), Declaration::Definition(definition));
                 }
                 TokenClass::Use => {
                     let value = Use::parse_token(&mut token_buffer)?;

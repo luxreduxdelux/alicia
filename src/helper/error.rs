@@ -123,6 +123,7 @@ impl ErrorInfo {
 pub enum ErrorHint {
     Global,
     Definition,
+    Assignment,
     Invocation,
     Function,
     Variable,
@@ -138,6 +139,10 @@ impl ErrorHint {
             ErrorHint::Definition => (
                 " parsing definition".to_string(),
                 "\nexample definition: let foo : String := \"hello\"".to_string(),
+            ),
+            ErrorHint::Assignment => (
+                " parsing assignment".to_string(),
+                "\nexample assignment: foo := \"hello\"".to_string(),
             ),
             ErrorHint::Invocation => (
                 " parsing invocation".to_string(),

@@ -11,64 +11,221 @@ pub enum Instruction {
     Structure(Structure),
     Enumerate(Enumerate),
     Definition(Definition),
+    Assignment(Assignment),
     Invocation(Invocation),
+    Condition(Condition),
+    Iteration(Iteration),
+    Skip,
+    Exit,
+    Return(Return),
 }
 
 impl Instruction {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        // TO-DO for, while, if
+    pub fn parse_token(token: Token, token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        // TO-DO if, loop, return
 
-        while let Some(token) = token_buffer.peek() {
-            match token.class {
-                TokenClass::Function => Ok(Self::Function(Function::parse_token(token_buffer)?)),
-                TokenClass::Structure => Ok(Self::Structure(Structure::parse_token(token_buffer)?)),
-                TokenClass::Enumerate => Ok(Self::Enumerate(Enumerate::parse_token(token_buffer)?)),
-                TokenClass::String(_) => {
-                    let cursor = token_buffer.get_cursor();
-
-                    if let Ok(definition) = Definition::parse_token(token_buffer) {
-                        return Ok(Self::Definition(definition));
-                    }
-
-                    token_buffer.set_cursor(cursor);
+        match token.class {
+            TokenClass::Function => Ok(Self::Function(Function::parse_token(token_buffer)?)),
+            TokenClass::Structure => Ok(Self::Structure(Structure::parse_token(token_buffer)?)),
+            TokenClass::Enumerate => Ok(Self::Enumerate(Enumerate::parse_token(token_buffer)?)),
+            TokenClass::Let => Ok(Self::Definition(Definition::parse_token(token_buffer)?)),
+            TokenClass::If => Ok(Self::Condition(Condition::parse_token(
+                token_buffer,
+                false,
+            )?)),
+            TokenClass::Loop => Ok(Self::Iteration(Iteration::parse_token(token_buffer)?)),
+            TokenClass::Skip => {
+                token_buffer.want(TokenKind::Skip, ErrorHint::Definition)?;
+                Ok(Self::Skip)
+            }
+            TokenClass::Exit => {
+                token_buffer.want(TokenKind::Exit, ErrorHint::Definition)?;
+                Ok(Self::Exit)
+            }
+            TokenClass::Return => Ok(Self::Return(Return::parse_token(token_buffer)?)),
+            TokenClass::String(_) => {
+                if let Some(token) = token_buffer.peek_ahead(1)
+                    && token.class.kind() == TokenKind::ParenthesisBegin
+                {
                     return Ok(Self::Invocation(Invocation::parse_token(token_buffer)?));
                 }
-                _ => {
-                    println!("t_c_return");
-                    return Err(Error::new_info(
-                        token_buffer.get_error_info(Some(token.clone())),
-                        ErrorKind::UnknownToken(token),
-                        Some(ErrorHint::Function),
-                    ));
-                }
-            }?;
+
+                Ok(Self::Assignment(Assignment::parse_token(token_buffer)?))
+            }
+            _ => Err(Error::new_info(
+                token_buffer.get_error_info(Some(token.clone())),
+                ErrorKind::UnknownToken(token),
+                Some(ErrorHint::Function),
+            )),
         }
+    }
+}
 
-        println!("return");
+#[derive(Debug, Clone)]
+pub struct Condition {
+    pub value: Option<String>,
+    pub block: Block,
+    pub child: Option<Box<Condition>>,
+}
 
-        let token = token_buffer.next();
+impl Condition {
+    pub fn parse_token(token_buffer: &mut TokenBuffer, recurse: bool) -> Result<Self, Error> {
+        if recurse {
+            token_buffer.want(TokenKind::Else, ErrorHint::Definition)?;
 
-        Err(Error::new_info(
-            token_buffer.get_error_info(token.clone()),
-            ErrorKind::UnknownToken(token.unwrap()),
-            Some(ErrorHint::Function),
-        ))
+            // else (value) branch.
+            if token_buffer.want_peek(TokenKind::String) {
+                let value = Some(
+                    token_buffer
+                        .want(TokenKind::String, ErrorHint::Definition)?
+                        .class
+                        .inner_string(),
+                );
+
+                let block = Block::parse_token(token_buffer)?;
+
+                let child = if token_buffer.want_peek(TokenKind::Else) {
+                    Some(Box::new(Self::parse_token(token_buffer, true)?))
+                } else {
+                    None
+                };
+
+                Ok(Self {
+                    value,
+                    block,
+                    child,
+                })
+            } else {
+                let block = Block::parse_token(token_buffer)?;
+
+                Ok(Self {
+                    value: None,
+                    block,
+                    child: None,
+                })
+            }
+        } else {
+            token_buffer.want(TokenKind::If, ErrorHint::Definition)?;
+
+            let value = Some(
+                token_buffer
+                    .want(TokenKind::String, ErrorHint::Definition)?
+                    .class
+                    .inner_string(),
+            );
+
+            let block = Block::parse_token(token_buffer)?;
+
+            let child = if token_buffer.want_peek(TokenKind::Else) {
+                Some(Box::new(Self::parse_token(token_buffer, true)?))
+            } else {
+                None
+            };
+
+            Ok(Self {
+                value,
+                block,
+                child,
+            })
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Return {
+    pub value: Option<Identifier>,
+}
+
+impl Return {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.want(TokenKind::Return, ErrorHint::Definition)?;
+
+        let value = if token_buffer.want_peek(TokenKind::String) {
+            Some(token_buffer.want_identifier(ErrorHint::Definition)?)
+        } else {
+            None
+        };
+
+        Ok(Self { value })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum IterationValue {
+    Iterational(Assignment),
+    Conditional(Identifier),
+}
+
+#[derive(Debug, Clone)]
+pub struct Iteration {
+    pub value: Option<IterationValue>,
+    pub block: Block,
+}
+
+impl Iteration {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.want(TokenKind::Loop, ErrorHint::Definition)?;
+
+        let value = if token_buffer.want_peek(TokenKind::String) {
+            if let Some(token) = token_buffer.peek_ahead(1)
+                && token.class.kind() == TokenKind::Definition
+            {
+                Some(IterationValue::Iterational(Assignment::parse_token(
+                    token_buffer,
+                )?))
+            } else {
+                Some(IterationValue::Conditional(
+                    token_buffer.want_identifier(ErrorHint::Definition)?,
+                ))
+            }
+        } else {
+            None
+        };
+
+        let block = Block::parse_token(token_buffer)?;
+
+        Ok(Self { value, block })
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Definition {
     pub name: Identifier,
-    pub kind: Token,
+    pub kind: Identifier,
     pub value: String,
 }
 
 impl Definition {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.want(TokenKind::Let, ErrorHint::Definition)?;
         let name = token_buffer.want_identifier(ErrorHint::Definition)?;
-        let kind = token_buffer.want_definition(ErrorHint::Definition)?;
+
+        token_buffer.want(TokenKind::Colon, ErrorHint::Definition)?;
+        let kind = token_buffer.want_identifier(ErrorHint::Definition)?;
+
+        token_buffer.want(TokenKind::Definition, ErrorHint::Definition)?;
         let value = token_buffer
             .want(TokenKind::String, ErrorHint::Definition)?
+            .class
+            .inner_string();
+
+        Ok(Self { name, kind, value })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Assignment {
+    pub name: Identifier,
+    pub kind: Token,
+    pub value: String,
+}
+
+impl Assignment {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        let name = token_buffer.want_identifier(ErrorHint::Assignment)?;
+        let kind = token_buffer.want_definition(ErrorHint::Assignment)?;
+        let value = token_buffer
+            .want(TokenKind::String, ErrorHint::Assignment)?
             .class
             .inner_string();
 
@@ -133,7 +290,7 @@ impl Block {
             } else if token.class.kind() == TokenKind::CurlyClose {
                 break;
             } else {
-                code.push(Instruction::parse_token(token_buffer)?);
+                code.push(Instruction::parse_token(token, token_buffer)?);
             }
         }
 
