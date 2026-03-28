@@ -1,4 +1,9 @@
+use super::buffer::*;
 use crate::helper::error::*;
+
+//================================================================
+
+use std::fmt::Display;
 
 //================================================================
 
@@ -30,7 +35,7 @@ impl Source {
 
 //================================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Point {
     pub x: usize,
     pub y: usize,
@@ -49,19 +54,23 @@ pub struct Identifier {
     pub text: String,
 }
 
-impl TryFrom<String> for Identifier {
-    type Error = ErrorKind;
+impl Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
 
-    fn try_from(value: String) -> Result<Self, ErrorKind> {
-        for (i, character) in value.chars().enumerate() {
+impl Identifier {
+    pub fn from_string(text: String) -> Result<Self, ErrorKind> {
+        for (i, character) in text.chars().enumerate() {
             if i == 0 && character.is_numeric() {
-                return Err(ErrorKind::IncorrectIdentifierNumber(value, character));
+                return Err(ErrorKind::IncorrectIdentifierNumber(text, character));
             } else if !(character.is_alphanumeric() || character == '_') {
-                return Err(ErrorKind::IncorrectIdentifierSymbol(value, character));
+                return Err(ErrorKind::IncorrectIdentifierSymbol(text, character));
             }
         }
 
-        Ok(Self { text: value })
+        Ok(Self { text })
     }
 }
 

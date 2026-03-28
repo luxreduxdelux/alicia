@@ -58,10 +58,45 @@ impl LineBuffer {
 
 //================================================================
 
+#[derive(Debug, Clone)]
+pub struct TokenSpan {
+    pub list: Vec<(String, usize)>,
+    pub path: String,
+    pub line: Option<Point>,
+}
+
+impl TokenSpan {
+    fn new(path: String) -> Self {
+        Self {
+            list: Vec::default(),
+            path,
+            line: None,
+        }
+    }
+
+    fn push(&mut self, source: &Source, token: &Token) {
+        if let Some(line) = &mut self.line {
+            if line.y != token.point.y {
+                let line = source.data.lines().nth(token.point.y).unwrap();
+
+                self.list.push((line.to_string(), token.point.y));
+                self.line = Some(token.point);
+            }
+        } else {
+            let line = source.data.lines().nth(token.point.y).unwrap();
+
+            self.list.push((line.to_string(), token.point.y));
+            self.line = Some(token.point);
+        }
+    }
+}
+
 pub struct TokenBuffer {
     source: Source,
     buffer: Vec<Token>,
     cursor: usize,
+    span: TokenSpan,
+    hint: Option<ErrorHint>,
 }
 
 impl TokenBuffer {
@@ -73,9 +108,11 @@ impl TokenBuffer {
         }
 
         Self {
+            span: TokenSpan::new(source.path.clone()),
             source,
             buffer,
             cursor: usize::default(),
+            hint: None,
         }
     }
 
@@ -83,12 +120,8 @@ impl TokenBuffer {
         println!("{:?}", &self.buffer[self.cursor..self.buffer.len()]);
     }
 
-    pub fn get_cursor(&self) -> usize {
-        self.cursor
-    }
-
-    pub fn set_cursor(&mut self, cursor: usize) {
-        self.cursor = cursor
+    pub fn get_span(&self) -> TokenSpan {
+        self.span.clone()
     }
 
     pub fn next(&mut self) -> Option<Token> {
@@ -108,26 +141,48 @@ impl TokenBuffer {
         None
     }
 
-    pub fn want(&mut self, kind: TokenKind, hint: ErrorHint) -> Result<Token, Error> {
+    pub fn parse<T, F: FnMut(&mut Self) -> Result<T, Error>>(
+        &mut self,
+        hint: ErrorHint,
+        mut call: F,
+    ) -> Result<T, Error> {
+        if hint == ErrorHint::Function
+            || hint == ErrorHint::Structure
+            || hint == ErrorHint::Enumerate
+        {
+            self.span = TokenSpan::new(self.source.path.clone());
+        }
+
+        self.hint = Some(hint);
+
+        let result = call(self)?;
+
+        self.hint = None;
+
+        Ok(result)
+    }
+
+    pub fn want(&mut self, kind: TokenKind) -> Result<Token, Error> {
         if let Some(next) = self.buffer.get(self.cursor) {
+            self.span.push(&self.source, next);
             self.cursor += 1;
 
             if next.class.kind() == kind {
                 return Ok(next.clone());
             } else {
                 return Err(Error::new_info(
-                    ErrorInfo::new(self.source.clone(), Some(next.clone())),
+                    ErrorInfo::new(self.get_span(), Some(next.clone())),
                     ErrorKind::IncorrectTokenKind(kind, next.clone()),
-                    Some(hint),
+                    self.hint,
                 ));
             }
         }
 
-        return Err(Error::new_info(
-            ErrorInfo::new(self.source.clone(), self.previous()),
+        Err(Error::new_info(
+            ErrorInfo::new(self.get_span(), self.previous()),
             ErrorKind::ExpectingKind(kind),
-            Some(hint),
-        ));
+            self.hint,
+        ))
     }
 
     pub fn want_peek(&mut self, kind: TokenKind) -> bool {
@@ -156,39 +211,41 @@ impl TokenBuffer {
         None
     }
 
-    pub fn want_identifier(&mut self, hint: ErrorHint) -> Result<Identifier, Error> {
+    pub fn want_identifier(&mut self) -> Result<Identifier, Error> {
         if let Some(next) = self.buffer.get(self.cursor) {
+            self.span.push(&self.source, next);
             self.cursor += 1;
 
             if next.class.kind() == TokenKind::String {
-                match next.class.inner_string().try_into() {
+                match Identifier::from_string(next.class.inner_string()) {
                     Ok(identifier) => return Ok(identifier),
                     Err(error) => {
                         return Err(Error::new_info(
-                            ErrorInfo::new(self.source.clone(), Some(next.clone())),
+                            ErrorInfo::new(self.get_span(), Some(next.clone())),
                             error,
-                            Some(hint),
+                            self.hint,
                         ));
                     }
                 }
             } else {
                 return Err(Error::new_info(
-                    ErrorInfo::new(self.source.clone(), Some(next.clone())),
+                    ErrorInfo::new(self.get_span(), Some(next.clone())),
                     ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
-                    Some(hint),
+                    self.hint,
                 ));
             };
         }
 
-        return Err(Error::new_info(
-            ErrorInfo::new(self.source.clone(), self.previous()),
+        Err(Error::new_info(
+            ErrorInfo::new(self.get_span(), self.previous()),
             ErrorKind::ExpectingKind(TokenKind::String),
-            Some(hint),
-        ));
+            self.hint,
+        ))
     }
 
-    pub fn want_definition(&mut self, hint: ErrorHint) -> Result<Token, Error> {
+    pub fn want_definition(&mut self) -> Result<Token, Error> {
         if let Some(next) = self.buffer.get(self.cursor) {
+            self.span.push(&self.source, next);
             self.cursor += 1;
 
             match next.class.kind() {
@@ -199,22 +256,22 @@ impl TokenBuffer {
                 | TokenKind::DefinitionDivide => return Ok(next.clone()),
                 _ => {
                     return Err(Error::new_info(
-                        ErrorInfo::new(self.source.clone(), Some(next.clone())),
+                        ErrorInfo::new(self.get_span(), Some(next.clone())),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
-                        Some(hint),
+                        self.hint,
                     ));
                 }
             }
         }
 
-        return Err(Error::new_info(
-            ErrorInfo::new(self.source.clone(), self.previous()),
+        Err(Error::new_info(
+            ErrorInfo::new(self.get_span(), self.previous()),
             ErrorKind::ExpectingKind(TokenKind::String),
-            Some(hint),
-        ));
+            self.hint,
+        ))
     }
 
     pub fn get_error_info(&self, token: Option<Token>) -> ErrorInfo {
-        ErrorInfo::new(self.source.clone(), token)
+        ErrorInfo::new(self.get_span(), token)
     }
 }

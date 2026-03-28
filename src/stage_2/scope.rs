@@ -10,39 +10,49 @@ use std::collections::HashMap;
 
 //================================================================
 
-#[derive(Debug)]
-enum Declaration {
+#[derive(Debug, Clone)]
+pub enum Declaration {
     Function(Function),
     Structure(Structure),
     Enumerate(Enumerate),
     Definition(Definition),
 }
 
+#[derive(Debug, Clone)]
 pub struct Scope {
-    symbol: HashMap<Identifier, Declaration>,
+    pub symbol: HashMap<Identifier, Declaration>,
+    pub parent: Option<Box<Self>>,
 }
 
 impl Scope {
-    pub fn new(mut token_buffer: TokenBuffer) -> Result<Self, Error> {
-        let mut symbol = HashMap::default();
+    pub fn new(parent: Option<Box<Self>>) -> Self {
+        Self {
+            symbol: HashMap::default(),
+            parent,
+        }
+    }
 
+    pub fn parse_buffer(&mut self, mut token_buffer: TokenBuffer) -> Result<(), Error> {
         while let Some(token) = token_buffer.peek() {
             match token.class {
                 TokenClass::Function => {
                     let function = Function::parse_token(&mut token_buffer)?;
-                    symbol.insert(function.name.clone(), Declaration::Function(function));
+                    self.set_declaration(function.name.clone(), Declaration::Function(function));
                 }
                 TokenClass::Structure => {
                     let structure = Structure::parse_token(&mut token_buffer)?;
-                    symbol.insert(structure.name.clone(), Declaration::Structure(structure));
+                    self.set_declaration(structure.name.clone(), Declaration::Structure(structure));
                 }
                 TokenClass::Enumerate => {
                     let enumerate = Enumerate::parse_token(&mut token_buffer)?;
-                    symbol.insert(enumerate.name.clone(), Declaration::Enumerate(enumerate));
+                    self.set_declaration(enumerate.name.clone(), Declaration::Enumerate(enumerate));
                 }
                 TokenClass::Let => {
                     let definition = Definition::parse_token(&mut token_buffer)?;
-                    symbol.insert(definition.name.clone(), Declaration::Definition(definition));
+                    self.set_declaration(
+                        definition.name.clone(),
+                        Declaration::Definition(definition),
+                    );
                 }
                 TokenClass::Use => {
                     let value = Use::parse_token(&mut token_buffer)?;
@@ -58,8 +68,20 @@ impl Scope {
             };
         }
 
-        println!("{symbol:#?}");
+        Ok(())
+    }
 
-        Ok(Self { symbol })
+    pub fn get_declaration(&self, name: Identifier) -> Option<&Declaration> {
+        if let Some(declaration) = self.symbol.get(&name) {
+            Some(declaration)
+        } else if let Some(parent) = &self.parent {
+            parent.get_declaration(name)
+        } else {
+            None
+        }
+    }
+
+    pub fn set_declaration(&mut self, name: Identifier, value: Declaration) {
+        self.symbol.insert(name, value);
     }
 }

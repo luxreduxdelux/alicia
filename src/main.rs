@@ -9,11 +9,17 @@ mod stage_4; // Run-time stage.
 use helper::error::*;
 use stage_1::{buffer::TokenBuffer, helper::Source};
 use stage_2::scope::*;
+use stage_3::analysis::*;
 
 //================================================================
 
 fn run() -> Result<(), Error> {
-    Scope::new(TokenBuffer::new(Source::new_file("src/test.alicia")?))?;
+    let mut scope = Scope::new(None);
+    scope.parse_buffer(TokenBuffer::new(Source::new_file("src/test.alicia")?))?;
+
+    println!("{scope:#?}");
+
+    Analysis::analyze_tree(scope)?;
 
     Ok(())
 }

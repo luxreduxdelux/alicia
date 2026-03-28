@@ -1,3 +1,4 @@
+use crate::stage_1::buffer::*;
 use crate::stage_1::helper::*;
 use crate::stage_1::token::*;
 
@@ -31,12 +32,16 @@ impl Error {
         }
     }
 
-    fn text_box(file: &str, text: &str, line: usize, character: usize) -> String {
+    fn text_box(file: &str, token_span: &TokenSpan, character: Option<usize>) -> String {
         let mut text_box = String::default();
-        let line_size = line.to_string().len() + 2;
+        let line_size = token_span
+            .list
+            .iter()
+            .max_by(|x, y| (x.1 + 1).cmp(&(y.1 + 1)));
+        let line_size = (line_size.unwrap().1 + 1).to_string();
+        let line_size = line_size.len() + 2;
 
         text_box.push('\n');
-
         text_box.push('╭');
         text_box.push_str(&'─'.to_string().repeat(line_size));
         text_box.push('🭬');
@@ -48,20 +53,30 @@ impl Error {
         text_box.push('│');
         text_box.push('\n');
 
-        text_box.push('│');
-        text_box.push(' ');
-        text_box.push_str(&line.to_string());
-        text_box.push(' ');
-        text_box.push('│');
-        text_box.push(' ');
-        text_box.push_str(text);
-        text_box.push('\n');
+        for (text, line) in &token_span.list {
+            let line = line + 1;
+            let line = line.to_string();
+
+            text_box.push('│');
+            text_box.push(' ');
+            text_box.push_str(&line);
+            text_box.push_str(&' '.to_string().repeat(line_size - (line.len() + 2)));
+            text_box.push(' ');
+            text_box.push('│');
+            text_box.push(' ');
+            text_box.push_str(&text);
+            text_box.push('\n');
+        }
 
         text_box.push('│');
         text_box.push_str(&' '.to_string().repeat(line_size));
         text_box.push('│');
-        text_box.push_str(&' '.to_string().repeat(character));
-        text_box.push('─');
+
+        if let Some(character) = character {
+            text_box.push_str(&' '.to_string().repeat(character));
+            text_box.push('─');
+        }
+
         text_box.push('\n');
 
         text_box.push('╰');
@@ -75,21 +90,24 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = if let Some(info) = &self.info {
             if let Some(token) = &info.token {
-                let code = info.source.data.lines().nth(token.point.y).unwrap();
-
                 Self::text_box(
                     &format!(
                         "{}:{}:{}",
-                        info.source.path,
+                        info.token_span.path,
                         token.point.y + 1,
                         token.point.x
                     ),
-                    code,
-                    token.point.y + 1,
-                    token.point.x,
+                    &info.token_span,
+                    Some(token.point.x),
+                )
+            } else if let Some(line) = info.token_span.list.first() {
+                Self::text_box(
+                    &format!("{}:{}", info.token_span.path, line.1 + 1),
+                    &info.token_span,
+                    None,
                 )
             } else {
-                format!("\n{}", info.source.path)
+                "".to_string()
             }
         } else {
             "".to_string()
@@ -108,18 +126,19 @@ impl Display for Error {
 //================================================================
 
 pub struct ErrorInfo {
-    source: Source,
+    token_span: TokenSpan,
     token: Option<Token>,
 }
 
 impl ErrorInfo {
-    pub fn new(source: Source, token: Option<Token>) -> Self {
-        Self { source, token }
+    pub fn new(token_span: TokenSpan, token: Option<Token>) -> Self {
+        Self { token_span, token }
     }
 }
 
 //================================================================
 
+#[derive(Copy, Clone, PartialEq)]
 pub enum ErrorHint {
     Global,
     Definition,
@@ -130,6 +149,10 @@ pub enum ErrorHint {
     Structure,
     Enumerate,
     Use,
+    Return,
+    Condition,
+    Iteration,
+    Block,
 }
 
 impl ErrorHint {
@@ -154,7 +177,7 @@ impl ErrorHint {
             ),
             ErrorHint::Function => (
                 " parsing function".to_string(),
-                "\nexample function: function foo(a: String) { }".to_string(),
+                "\nexample function: function foo(a: String) { ... }".to_string(),
             ),
             ErrorHint::Structure => (
                 " parsing structure".to_string(),
@@ -167,6 +190,22 @@ impl ErrorHint {
             ErrorHint::Use => (
                 " parsing use".to_string(),
                 "\nexample use: use module_name".to_string(),
+            ),
+            ErrorHint::Return => (
+                " parsing return".to_string(),
+                "\nexample return: return 1".to_string(),
+            ),
+            ErrorHint::Condition => (
+                " parsing condition".to_string(),
+                "\nexample condition: if a { ... } else if b { ... } else { }".to_string(),
+            ),
+            ErrorHint::Iteration => (
+                " parsing iteration".to_string(),
+                "\nexample iteration: loop { ... }".to_string(),
+            ),
+            ErrorHint::Block => (
+                " parsing block".to_string(),
+                "\nexample block: { ... }".to_string(),
             ),
         }
     }
@@ -182,6 +221,8 @@ pub enum ErrorKind {
     UnknownTokenGlobal(Token),
     #[error("unknown token \"{0}\".")]
     UnknownToken(Token),
+    #[error("unknown variable \"{0}\".")]
+    UnknownVariable(Identifier),
     #[error("could not parse \"{0}\" as a valid Integer value.")]
     IntegerParseFail(String),
     #[error("could not parse \"{0}\" as a valid Decimal value.")]

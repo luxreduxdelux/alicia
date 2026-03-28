@@ -231,12 +231,7 @@ impl Display for TokenClass {
 
 impl TokenClass {
     pub fn inner_string(&self) -> String {
-        match self {
-            Self::String(text) => text.clone(),
-            _ => panic!(
-                "Internal Alicia error: inner_string() on a token that was thought to be a Token::String token."
-            ),
-        }
+        format!("{}", self)
     }
 
     #[rustfmt::skip]
