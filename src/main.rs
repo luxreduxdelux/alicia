@@ -17,8 +17,6 @@ fn run() -> Result<(), Error> {
     let mut scope = Scope::new(None);
     scope.parse_buffer(TokenBuffer::new(Source::new_file("src/test.alicia")?))?;
 
-    println!("{scope:#?}");
-
     Analysis::analyze_tree(scope)?;
 
     Ok(())

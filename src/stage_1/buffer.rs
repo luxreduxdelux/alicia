@@ -116,9 +116,11 @@ impl TokenBuffer {
         }
     }
 
+    /*
     pub fn print_state(&self) {
         println!("{:?}", &self.buffer[self.cursor..self.buffer.len()]);
     }
+    */
 
     pub fn get_span(&self) -> TokenSpan {
         self.span.clone()
@@ -149,6 +151,8 @@ impl TokenBuffer {
         if hint == ErrorHint::Function
             || hint == ErrorHint::Structure
             || hint == ErrorHint::Enumerate
+            || hint == ErrorHint::Definition
+            || hint == ErrorHint::Assignment
         {
             self.span = TokenSpan::new(self.source.path.clone());
         }
@@ -171,7 +175,7 @@ impl TokenBuffer {
                 return Ok(next.clone());
             } else {
                 return Err(Error::new_info(
-                    ErrorInfo::new(self.get_span(), Some(next.clone())),
+                    ErrorInfo::new_token(self.get_span(), Some(next.clone())),
                     ErrorKind::IncorrectTokenKind(kind, next.clone()),
                     self.hint,
                 ));
@@ -179,7 +183,7 @@ impl TokenBuffer {
         }
 
         Err(Error::new_info(
-            ErrorInfo::new(self.get_span(), self.previous()),
+            ErrorInfo::new_token(self.get_span(), self.previous()),
             ErrorKind::ExpectingKind(kind),
             self.hint,
         ))
@@ -217,11 +221,11 @@ impl TokenBuffer {
             self.cursor += 1;
 
             if next.class.kind() == TokenKind::String {
-                match Identifier::from_string(next.class.inner_string()) {
+                match Identifier::from_string(next.class.inner_string(), next.point) {
                     Ok(identifier) => return Ok(identifier),
                     Err(error) => {
                         return Err(Error::new_info(
-                            ErrorInfo::new(self.get_span(), Some(next.clone())),
+                            ErrorInfo::new_token(self.get_span(), Some(next.clone())),
                             error,
                             self.hint,
                         ));
@@ -229,7 +233,7 @@ impl TokenBuffer {
                 }
             } else {
                 return Err(Error::new_info(
-                    ErrorInfo::new(self.get_span(), Some(next.clone())),
+                    ErrorInfo::new_token(self.get_span(), Some(next.clone())),
                     ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                     self.hint,
                 ));
@@ -237,7 +241,7 @@ impl TokenBuffer {
         }
 
         Err(Error::new_info(
-            ErrorInfo::new(self.get_span(), self.previous()),
+            ErrorInfo::new_token(self.get_span(), self.previous()),
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
         ))
@@ -256,7 +260,7 @@ impl TokenBuffer {
                 | TokenKind::DefinitionDivide => return Ok(next.clone()),
                 _ => {
                     return Err(Error::new_info(
-                        ErrorInfo::new(self.get_span(), Some(next.clone())),
+                        ErrorInfo::new_token(self.get_span(), Some(next.clone())),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
                     ));
@@ -265,13 +269,13 @@ impl TokenBuffer {
         }
 
         Err(Error::new_info(
-            ErrorInfo::new(self.get_span(), self.previous()),
+            ErrorInfo::new_token(self.get_span(), self.previous()),
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
         ))
     }
 
     pub fn get_error_info(&self, token: Option<Token>) -> ErrorInfo {
-        ErrorInfo::new(self.get_span(), token)
+        ErrorInfo::new_token(self.get_span(), token)
     }
 }

@@ -20,7 +20,7 @@ pub enum Declaration {
 
 #[derive(Debug, Clone)]
 pub struct Scope {
-    pub symbol: HashMap<Identifier, Declaration>,
+    pub symbol: HashMap<String, Declaration>,
     pub parent: Option<Box<Self>>,
 }
 
@@ -72,7 +72,7 @@ impl Scope {
     }
 
     pub fn get_declaration(&self, name: Identifier) -> Option<&Declaration> {
-        if let Some(declaration) = self.symbol.get(&name) {
+        if let Some(declaration) = self.symbol.get(&name.text) {
             Some(declaration)
         } else if let Some(parent) = &self.parent {
             parent.get_declaration(name)
@@ -82,6 +82,6 @@ impl Scope {
     }
 
     pub fn set_declaration(&mut self, name: Identifier, value: Declaration) {
-        self.symbol.insert(name, value);
+        self.symbol.insert(name.to_string(), value);
     }
 }

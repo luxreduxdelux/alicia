@@ -223,6 +223,7 @@ impl Definition {
 
 #[derive(Debug, Clone)]
 pub struct Assignment {
+    pub span: TokenSpan,
     pub name: Identifier,
     pub kind: Token,
     pub value: String,
@@ -235,7 +236,12 @@ impl Assignment {
             let kind = token_buffer.want_definition()?;
             let value = token_buffer.want(TokenKind::String)?.class.inner_string();
 
-            Ok(Self { name, kind, value })
+            Ok(Self {
+                span: token_buffer.get_span(),
+                name,
+                kind,
+                value,
+            })
         })
     }
 
@@ -249,7 +255,8 @@ impl Assignment {
                 }
             }
         } else {
-            Err(Error::new_kind(
+            Err(Error::new_info(
+                ErrorInfo::new_point(self.span.clone(), Some(self.name.point)),
                 ErrorKind::UnknownVariable(self.name.clone()),
                 Some(ErrorHint::Assignment),
             ))
@@ -514,7 +521,7 @@ impl Variable {
                 }
 
                 return Err(Error::new_info(
-                    ErrorInfo::new(span.clone(), None),
+                    ErrorInfo::new_point(span.clone(), Some(name.point)),
                     ErrorKind::UnknownKind(name.text.clone()),
                     Some(ErrorHint::Variable),
                 ));
@@ -549,15 +556,16 @@ impl Structure {
             token_buffer.want(TokenKind::CurlyBegin)?;
 
             while let Some(token) = token_buffer.peek() {
-                if token.class.kind() == TokenKind::CurlyClose {
-                    break;
-                }
+                // TO-DO fix structure f { a: String b: String }
+                list.push(Variable::parse_token(token_buffer)?);
 
                 if token.class.kind() == TokenKind::Comma {
                     token_buffer.next();
+                } else if token.class.kind() == TokenKind::ParenthesisClose {
+                    break;
+                } else {
+                    // TO-DO throw error here on unknown token?
                 }
-
-                list.push(Variable::parse_token(token_buffer)?);
             }
 
             token_buffer.want(TokenKind::CurlyClose)?;

@@ -1,4 +1,3 @@
-use super::buffer::*;
 use crate::helper::error::*;
 
 //================================================================
@@ -14,9 +13,11 @@ pub struct Source {
 }
 
 impl Source {
-    pub fn new(path: String, data: String) -> Self {
+    /*
+    pub fn new_data(path: String, data: String) -> Self {
         Self { path, data }
     }
+    */
 
     pub fn new_file(path: &str) -> Result<Self, Error> {
         if let Ok(data) = std::fs::read_to_string(path) {
@@ -52,6 +53,7 @@ impl Point {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Identifier {
     pub text: String,
+    pub point: Point,
 }
 
 impl Display for Identifier {
@@ -61,7 +63,7 @@ impl Display for Identifier {
 }
 
 impl Identifier {
-    pub fn from_string(text: String) -> Result<Self, ErrorKind> {
+    pub fn from_string(text: String, point: Point) -> Result<Self, ErrorKind> {
         for (i, character) in text.chars().enumerate() {
             if i == 0 && character.is_numeric() {
                 return Err(ErrorKind::IncorrectIdentifierNumber(text, character));
@@ -70,7 +72,7 @@ impl Identifier {
             }
         }
 
-        Ok(Self { text })
+        Ok(Self { text, point })
     }
 }
 
