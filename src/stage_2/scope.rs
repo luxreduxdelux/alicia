@@ -54,10 +54,10 @@ impl Scope {
                         Declaration::Definition(definition),
                     );
                 }
-                TokenClass::Use => {
-                    let value = Use::parse_token(&mut token_buffer)?;
-                    println!("use: {value:?}");
-                }
+                //TokenClass::Use => {
+                //    let value = Use::parse_token(&mut token_buffer)?;
+                //    println!("use: {value:?}");
+                //}
                 _ => {
                     return Err(Error::new_info(
                         token_buffer.get_error_info(Some(token.clone())),

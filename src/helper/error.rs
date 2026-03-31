@@ -32,7 +32,7 @@ impl Error {
         }
     }
 
-    fn slice_list(list: &Vec<(String, usize)>, point: usize) -> Vec<(String, usize)> {
+    fn slice_list(list: &Vec<(String, usize)>) -> Vec<(String, usize)> {
         if list.len() >= 6 {
             let mut slice = Vec::new();
 
@@ -75,7 +75,7 @@ impl Error {
         text_box.push('│');
         text_box.push('\n');
 
-        let slice = Self::slice_list(&token_span.list, point.y);
+        let slice = Self::slice_list(&token_span.list);
 
         for (text, line) in &slice {
             let line = line + 1;
@@ -173,6 +173,7 @@ pub enum ErrorHint {
     Variable,
     Structure,
     Enumerate,
+    Expression,
     Use,
     Return,
     Condition,
@@ -212,6 +213,10 @@ impl ErrorHint {
                 " parsing enumerate".to_string(),
                 "\nexample enumerate: enumerate foo { a, b, c }".to_string(),
             ),
+            ErrorHint::Expression => (
+                " parsing expression".to_string(),
+                "\nexample expression: (2 + 2) * 4".to_string(),
+            ),
             ErrorHint::Use => (
                 " parsing use".to_string(),
                 "\nexample use: use module_name".to_string(),
@@ -241,19 +246,13 @@ pub enum ErrorKind {
     #[error("unknown kind \"{0}\".")]
     UnknownKind(String),
     #[error(
-        "was expecting one of \"function\", \"structure\", \"enumerate\", \"use\", found \"{0}\"."
+        "was expecting one of \"function\", \"structure\", \"enumerate\", \"import\", found \"{0}\"."
     )]
     UnknownTokenGlobal(Token),
     #[error("unknown token \"{0}\".")]
     UnknownToken(Token),
     #[error("unknown variable \"{0}\".")]
     UnknownVariable(Identifier),
-    #[error("could not parse \"{0}\" as a valid Integer value.")]
-    IntegerParseFail(String),
-    #[error("could not parse \"{0}\" as a valid Decimal value.")]
-    DecimalParseFail(String),
-    #[error("could not parse \"{0}\" as a valid Boolean value.")]
-    BooleanParseFail(String),
     #[error("file \"{0}\" not found.")]
     FileNotFound(String),
     #[error("was expecting \"{0}\", got \"{1}\" instead.")]

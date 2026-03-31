@@ -84,6 +84,7 @@ impl From<Identifier> for String {
 
 //================================================================
 
+/*
 #[derive(Debug, Clone, Default)]
 pub struct Path {
     pub list: Vec<Identifier>,
@@ -106,3 +107,4 @@ impl Path {
         self.list.push(text);
     }
 }
+*/

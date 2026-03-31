@@ -15,7 +15,7 @@ use stage_3::analysis::*;
 
 fn run() -> Result<(), Error> {
     let mut scope = Scope::new(None);
-    scope.parse_buffer(TokenBuffer::new(Source::new_file("src/test.alicia")?))?;
+    scope.parse_buffer(TokenBuffer::new(Source::new_file("src/test.alicia")?)?)?;
 
     Analysis::analyze_tree(scope)?;
 

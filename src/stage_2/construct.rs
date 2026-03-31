@@ -23,6 +23,41 @@ pub enum Instruction {
 }
 
 impl Instruction {
+    fn parse_identifier(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        if let Some(token) = token_buffer.peek_ahead(1)
+            && token.class.kind() == TokenKind::ParenthesisBegin
+        {
+            return Ok(Self::Invocation(Invocation::parse_token(token_buffer)?));
+        }
+
+        Ok(Self::Assignment(Assignment::parse_token(token_buffer)?))
+    }
+
+    fn parse_comma<F: FnMut(&mut TokenBuffer) -> Result<(), Error>>(
+        token_buffer: &mut TokenBuffer,
+        delimiter: TokenKind,
+        mut call: F,
+    ) -> Result<(), Error> {
+        while let Some(token) = token_buffer.peek() {
+            if token.class.kind() == delimiter {
+                break;
+            }
+
+            //list.push(token_buffer.want_identifier()?);
+            call(token_buffer)?;
+
+            if let Some(token) = token_buffer.peek()
+                && token.class.kind() == TokenKind::Comma
+            {
+                token_buffer.next();
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn parse_token(token: Token, token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         match token.class {
             TokenClass::Function => Ok(Self::Function(Function::parse_token(token_buffer)?)),
@@ -43,15 +78,7 @@ impl Instruction {
                 Ok(Self::Exit)
             }
             TokenClass::Return => Ok(Self::Return(Return::parse_token(token_buffer)?)),
-            TokenClass::String(_) => {
-                if let Some(token) = token_buffer.peek_ahead(1)
-                    && token.class.kind() == TokenKind::ParenthesisBegin
-                {
-                    return Ok(Self::Invocation(Invocation::parse_token(token_buffer)?));
-                }
-
-                Ok(Self::Assignment(Assignment::parse_token(token_buffer)?))
-            }
+            TokenClass::Identifier(_) => Self::parse_identifier(token_buffer),
             TokenClass::CurlyBegin => Ok(Self::Block(Block::parse_token(token_buffer)?)),
             _ => Err(Error::new_info(
                 token_buffer.get_error_info(Some(token.clone())),
@@ -183,12 +210,214 @@ impl Iteration {
     }
 }
 
+#[derive(PartialEq, Eq)]
+pub enum ExpressionKind {
+    Path,
+    String,
+    Integer,
+    Decimal,
+    Boolean,
+}
+
+#[derive(Debug, Clone)]
+pub enum ExpressionValue {
+    Path(Path),
+    String(String),
+    Integer(i64),
+    Decimal(f64),
+    Boolean(bool),
+}
+
+impl ExpressionValue {
+    fn from_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        if let Some(token) = token_buffer.peek_value() {
+            match token.class {
+                TokenClass::Identifier(_value) => Ok(Self::Path(Path::parse_token(token_buffer)?)),
+                TokenClass::String(value) => {
+                    token_buffer.next();
+                    Ok(Self::String(value))
+                }
+                TokenClass::Integer(value) => {
+                    token_buffer.next();
+                    Ok(Self::Integer(value))
+                }
+                TokenClass::Decimal(value) => {
+                    token_buffer.next();
+                    Ok(Self::Decimal(value))
+                }
+                TokenClass::Boolean(value) => {
+                    token_buffer.next();
+                    Ok(Self::Boolean(value))
+                }
+                _ => panic!(
+                    "Alicia internal error: ExpressionValue::parse_token(): want_token() gave back a token that is not a possible value"
+                ),
+            }
+        } else {
+            panic!("TO-DO from_token")
+        }
+    }
+
+    fn as_integer(&self) -> i64 {
+        match self {
+            Self::Integer(value) => *value,
+            _ => panic!("value is not an integer"),
+        }
+    }
+
+    fn as_decimal(&self) -> f64 {
+        match self {
+            Self::Decimal(value) => *value,
+            _ => panic!("value is not a decimal"),
+        }
+    }
+
+    #[rustfmt::skip]
+    fn kind(&self) -> ExpressionKind {
+        match self {
+            Self::Path(_)       => ExpressionKind::Path,
+            Self::String(_)     => ExpressionKind::String,
+            Self::Integer(_)    => ExpressionKind::Integer,
+            Self::Decimal(_)    => ExpressionKind::Decimal,
+            Self::Boolean(_)    => ExpressionKind::Boolean,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ExpressionOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+impl ExpressionOperator {
+    #[rustfmt::skip]
+    fn from_token(token: Token) -> Self {
+        match token.class.kind() {
+            TokenKind::Add      => Self::Add,
+            TokenKind::Subtract => Self::Subtract,
+            TokenKind::Multiply => Self::Multiply,
+            TokenKind::Divide   => Self::Divide,
+            _ => panic!(
+                "Alicia internal error: ExpressionValue::parse_token(): want_token() gave back a token that is not a possible value"
+            ),
+        }
+    }
+
+    #[rustfmt::skip]
+    fn parse_token(&self, token_a: Expression, token_b: Expression) -> Expression {
+        let token_a = Box::new(token_a);
+        let token_b = Box::new(token_b);
+
+        match self {
+            Self::Add      => Expression::Operation(Self::Add,      token_a, token_b),
+            Self::Subtract => Expression::Operation(Self::Subtract, token_a, token_b),
+            Self::Multiply => Expression::Operation(Self::Multiply, token_a, token_b),
+            Self::Divide   => Expression::Operation(Self::Divide,   token_a, token_b),
+        }
+    }
+
+    #[rustfmt::skip]
+    fn bind_power(&self) -> (f32, f32) {
+        match self {
+            ExpressionOperator::Add      => (1.0, 1.1),
+            ExpressionOperator::Subtract => (1.0, 1.1),
+            ExpressionOperator::Multiply => (2.0, 2.1),
+            ExpressionOperator::Divide   => (2.0, 2.1),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Expression {
+    Value(ExpressionValue),
+    Operation(ExpressionOperator, Box<Expression>, Box<Expression>),
+}
+
+impl Expression {
+    pub fn parse_token(token_buffer: &mut TokenBuffer, bind_power: f32) -> Result<Self, Error> {
+        token_buffer.parse(ErrorHint::Expression, |token_buffer| {
+            let mut value_a = if token_buffer.want_peek(TokenKind::ParenthesisBegin) {
+                token_buffer.want(TokenKind::ParenthesisBegin)?;
+                let value = Self::parse_token(token_buffer, 0.0)?;
+                token_buffer.want(TokenKind::ParenthesisClose)?;
+
+                value
+            } else {
+                Expression::Value(ExpressionValue::from_token(token_buffer)?)
+            };
+
+            while let Some(token) = token_buffer.peek_operator() {
+                let operator = ExpressionOperator::from_token(token);
+
+                if operator.bind_power().0 <= bind_power {
+                    break;
+                }
+
+                token_buffer.want_operator()?;
+
+                let value_b = Self::parse_token(token_buffer, operator.bind_power().1)?;
+
+                value_a = ExpressionOperator::parse_token(&operator, value_a, value_b)
+            }
+
+            Ok(value_a)
+        })
+    }
+
+    pub fn evaluate(&self, scope: &Scope) -> Result<ExpressionValue, Error> {
+        Ok(match self {
+            Expression::Value(expression_value) => expression_value.clone(),
+            Expression::Operation(operator, a, b) => {
+                let a = a.evaluate(scope)?;
+                let b = b.evaluate(scope)?;
+                let kind_a = a.kind();
+                let kind_b = b.kind();
+
+                if kind_a == kind_b {
+                    match kind_a {
+                        ExpressionKind::Path => todo!(),
+                        ExpressionKind::String => todo!(),
+                        ExpressionKind::Integer => {
+                            let a = a.as_integer();
+                            let b = b.as_integer();
+
+                            match operator {
+                                ExpressionOperator::Add => ExpressionValue::Integer(a + b),
+                                ExpressionOperator::Subtract => ExpressionValue::Integer(a - b),
+                                ExpressionOperator::Multiply => ExpressionValue::Integer(a * b),
+                                ExpressionOperator::Divide => ExpressionValue::Integer(a / b),
+                            }
+                        }
+                        ExpressionKind::Decimal => {
+                            let a = a.as_decimal();
+                            let b = b.as_decimal();
+
+                            match operator {
+                                ExpressionOperator::Add => ExpressionValue::Decimal(a + b),
+                                ExpressionOperator::Subtract => ExpressionValue::Decimal(a - b),
+                                ExpressionOperator::Multiply => ExpressionValue::Decimal(a * b),
+                                ExpressionOperator::Divide => ExpressionValue::Decimal(a / b),
+                            }
+                        }
+                        ExpressionKind::Boolean => todo!(),
+                    }
+                } else {
+                    panic!("evaluate: type mismatch");
+                }
+            }
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Definition {
     pub span: TokenSpan,
     pub name: Identifier,
     pub kind: Identifier,
-    pub value: String,
+    pub value: Expression,
 }
 
 impl Definition {
@@ -201,7 +430,11 @@ impl Definition {
             let kind = token_buffer.want_identifier()?;
 
             token_buffer.want(TokenKind::Definition)?;
-            let value = token_buffer.want(TokenKind::String)?.class.inner_string();
+            let value = Expression::parse_token(token_buffer, 0.0)?;
+
+            println!("{value:#?}");
+
+            //println!("{:?}", value.evaluate());
 
             Ok(Self {
                 span: token_buffer.get_span(),
@@ -226,7 +459,7 @@ pub struct Assignment {
     pub span: TokenSpan,
     pub name: Identifier,
     pub kind: Token,
-    pub value: String,
+    pub value: Expression,
 }
 
 impl Assignment {
@@ -234,7 +467,7 @@ impl Assignment {
         token_buffer.parse(ErrorHint::Assignment, |token_buffer| {
             let name = token_buffer.want_identifier()?;
             let kind = token_buffer.want_definition()?;
-            let value = token_buffer.want(TokenKind::String)?.class.inner_string();
+            let value = Expression::parse_token(token_buffer, 0.0)?;
 
             Ok(Self {
                 span: token_buffer.get_span(),
@@ -266,8 +499,9 @@ impl Assignment {
 
 #[derive(Debug, Clone)]
 pub struct Invocation {
+    pub span: TokenSpan,
     pub name: Identifier,
-    pub list: Vec<String>,
+    pub list: Vec<Expression>,
 }
 
 impl Invocation {
@@ -283,16 +517,26 @@ impl Invocation {
                     break;
                 }
 
-                if token.class.kind() == TokenKind::Comma {
-                    token_buffer.next();
-                }
+                list.push(Expression::parse_token(token_buffer, 0.0)?);
 
-                list.push(token_buffer.want(TokenKind::String)?.class.inner_string());
+                token_buffer.print_state();
+
+                if let Some(token) = token_buffer.peek()
+                    && token.class.kind() == TokenKind::Comma
+                {
+                    token_buffer.next();
+                } else {
+                    break;
+                }
             }
 
             token_buffer.want(TokenKind::ParenthesisClose)?;
 
-            Ok(Self { name, list })
+            Ok(Self {
+                span: token_buffer.get_span(),
+                name,
+                list,
+            })
         })
     }
 
@@ -309,8 +553,34 @@ impl Invocation {
                 }
             }
         } else {
-            todo!()
+            Err(Error::new_info(
+                ErrorInfo::new_token(self.span.clone(), None),
+                ErrorKind::UnknownVariable(self.name.clone()),
+                Some(ErrorHint::Invocation),
+            ))
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Indexation {
+    pub name: Identifier,
+    pub expression: Expression,
+}
+
+impl Indexation {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.parse(ErrorHint::Invocation, |token_buffer| {
+            let name = token_buffer.want_identifier()?;
+
+            token_buffer.want(TokenKind::SquareBegin)?;
+
+            let expression = Expression::parse_token(token_buffer, 0.0)?;
+
+            token_buffer.want(TokenKind::SquareClose)?;
+
+            Ok(Self { name, expression })
+        })
     }
 }
 
@@ -422,17 +692,14 @@ impl Function {
             if token_buffer.want_peek(TokenKind::ParenthesisClose) {
                 token_buffer.want(TokenKind::ParenthesisClose)?;
             } else {
-                while let Some(token) = token_buffer.peek() {
-                    if token.class.kind() == TokenKind::ParenthesisClose {
-                        break;
-                    }
-
-                    if token.class.kind() == TokenKind::Comma {
-                        token_buffer.next();
-                    }
-
-                    enter.push(Variable::parse_token(token_buffer)?);
-                }
+                Instruction::parse_comma(
+                    token_buffer,
+                    TokenKind::ParenthesisClose,
+                    |token_buffer| {
+                        enter.push(Variable::parse_token(token_buffer)?);
+                        Ok(())
+                    },
+                )?;
 
                 token_buffer.want(TokenKind::ParenthesisClose)?;
             }
@@ -555,18 +822,10 @@ impl Structure {
 
             token_buffer.want(TokenKind::CurlyBegin)?;
 
-            while let Some(token) = token_buffer.peek() {
-                // TO-DO fix structure f { a: String b: String }
+            Instruction::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
                 list.push(Variable::parse_token(token_buffer)?);
-
-                if token.class.kind() == TokenKind::Comma {
-                    token_buffer.next();
-                } else if token.class.kind() == TokenKind::ParenthesisClose {
-                    break;
-                } else {
-                    // TO-DO throw error here on unknown token?
-                }
-            }
+                Ok(())
+            })?;
 
             token_buffer.want(TokenKind::CurlyClose)?;
 
@@ -602,17 +861,10 @@ impl Enumerate {
 
             token_buffer.want(TokenKind::CurlyBegin)?;
 
-            while let Some(token) = token_buffer.peek() {
-                if token.class.kind() == TokenKind::CurlyClose {
-                    break;
-                }
-
-                if token.class.kind() == TokenKind::Comma {
-                    token_buffer.next();
-                }
-
+            Instruction::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
                 list.push(token_buffer.want_identifier()?);
-            }
+                Ok(())
+            })?;
 
             token_buffer.want(TokenKind::CurlyClose)?;
 
@@ -623,6 +875,51 @@ impl Enumerate {
 
 //================================================================
 
+#[derive(Debug, Clone)]
+pub enum PathKind {
+    Identifier(Identifier),
+    Invocation(Invocation),
+    Indexation(Indexation),
+}
+
+#[derive(Debug, Clone)]
+pub struct Path {
+    list: Vec<PathKind>,
+}
+
+impl Path {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.print_state();
+
+        token_buffer.parse(ErrorHint::Use, |token_buffer| {
+            let mut list = Vec::new();
+
+            while let Some(token) = token_buffer.peek() {
+                if token.class.kind() == TokenKind::Identifier {
+                    if let Some(token) = token_buffer.peek_ahead(1) {
+                        if token.class.kind() == TokenKind::ParenthesisBegin {
+                            list.push(PathKind::Invocation(Invocation::parse_token(token_buffer)?));
+                            continue;
+                        } else if token.class.kind() == TokenKind::SquareBegin {
+                            list.push(PathKind::Indexation(Indexation::parse_token(token_buffer)?));
+                            continue;
+                        }
+                    }
+
+                    list.push(PathKind::Identifier(token_buffer.want_identifier()?))
+                } else if token.class.kind() == TokenKind::Dot {
+                    token_buffer.want(TokenKind::Dot)?;
+                } else {
+                    break;
+                }
+            }
+
+            Ok(Self { list })
+        })
+    }
+}
+
+/*
 #[derive(Debug, Clone)]
 pub struct Use {
     pub path: Path,
@@ -647,3 +944,4 @@ impl Use {
         })
     }
 }
+*/

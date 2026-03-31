@@ -1,5 +1,6 @@
 use super::buffer::*;
 use super::helper::*;
+use crate::ErrorKind;
 
 //================================================================
 
@@ -14,28 +15,39 @@ pub struct Token {
 }
 
 impl Token {
-    pub fn parse_line(line: &str, line_index: usize, list: &mut Vec<Token>) {
+    pub fn parse_line(
+        line: &str,
+        line_index: usize,
+        list: &mut Vec<Token>,
+    ) -> Result<(), ErrorKind> {
         if line.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut line_buffer = LineBuffer::new(line.to_string());
         let mut inside_string = false;
+        let mut inside_number = false;
         let mut inside_escape = false;
 
         while let Some(character) = line_buffer.next() {
             match character {
+                '0'..='9' => {
+                    inside_number = true;
+                    line_buffer.push(character);
+                }
                 '\\' => {
                     inside_escape = true;
                     continue;
                 }
                 ' ' => {
+                    inside_number = false;
+
                     if !inside_string {
                         if !line_buffer.is_empty() {
                             list.push(Self::new(
                                 Point::new(line_buffer.get_cursor(), line_index),
                                 &line_buffer.clear(),
-                            ));
+                            )?);
                         }
                     } else {
                         line_buffer.push(character);
@@ -53,14 +65,21 @@ impl Token {
                         list.push(Self::new(
                             Point::new(line_buffer.get_cursor(), line_index),
                             &line_buffer.clear(),
-                        ));
+                        )?);
                     }
 
                     inside_string = !inside_string;
                 }
-                '#' => return,
-                '(' | ')' | '{' | '}' | '.' | ':' | ',' | '&' | '<' | '>' | '+' | '-' | '*'
-                | '/' => {
+                '#' => return Ok(()),
+                '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ',' | '&' | '<' | '>' | '+'
+                | '-' | '*' | '/' => {
+                    if character == '.' && inside_number {
+                        line_buffer.push(character);
+                        continue;
+                    }
+
+                    inside_number = false;
+
                     if !inside_string {
                         if let Some(peek) = line_buffer.peek() {
                             let definition = character == ':';
@@ -86,7 +105,7 @@ impl Token {
                                 list.push(Self::new(
                                     Point::new(line_buffer.get_cursor(), line_index),
                                     &line_buffer.clear(),
-                                ));
+                                )?);
                                 continue;
                             }
                         }
@@ -95,13 +114,13 @@ impl Token {
                             list.push(Self::new(
                                 Point::new(line_buffer.get_cursor(), line_index),
                                 &line_buffer.clear(),
-                            ));
+                            )?);
                         }
 
                         list.push(Self::new(
                             Point::new(line_buffer.get_cursor(), line_index),
                             &character.to_string(),
-                        ));
+                        )?);
                     } else {
                         line_buffer.push(character);
                     }
@@ -116,15 +135,17 @@ impl Token {
             list.push(Self::new(
                 Point::new(line_buffer.get_cursor(), line_index),
                 &line_buffer.clear(),
-            ));
+            )?);
         }
+
+        Ok(())
     }
 
-    fn new(point: Point, text: &str) -> Self {
-        Self {
+    fn new(point: Point, text: &str) -> Result<Self, ErrorKind> {
+        Ok(Self {
             point,
-            class: TokenClass::parse_text(text),
-        }
+            class: TokenClass::parse_text(text, point)?,
+        })
     }
 }
 
@@ -137,9 +158,10 @@ impl Display for Token {
 
 #[derive(Debug, Clone)]
 pub enum TokenClass {
+    Identifier(Identifier),
     String(String),
-    Integer(i32),
-    Decimal(f32),
+    Integer(i64),
+    Decimal(f64),
     Boolean(bool),
     Function,
     Structure,
@@ -157,6 +179,8 @@ pub enum TokenClass {
     Or,
     ParenthesisBegin,
     ParenthesisClose,
+    SquareBegin,
+    SquareClose,
     CurlyBegin,
     CurlyClose,
     Dot,
@@ -184,7 +208,8 @@ impl Display for TokenClass {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Self::String(text)       => formatter.write_str(text),
+            Self::Identifier(value)  => formatter.write_str(&value.text),
+            Self::String(text)       => formatter.write_str(&format!("\"{text}\"")),
             Self::Integer(text)      => formatter.write_str(&text.to_string()),
             Self::Decimal(text)      => formatter.write_str(&text.to_string()),
             Self::Boolean(text)      => formatter.write_str(&text.to_string()),
@@ -204,6 +229,8 @@ impl Display for TokenClass {
             Self::Or                 => formatter.write_str("or"),
             Self::ParenthesisBegin   => formatter.write_str("("),
             Self::ParenthesisClose   => formatter.write_str(")"),
+            Self::SquareBegin        => formatter.write_str("["),
+            Self::SquareClose        => formatter.write_str("]"),
             Self::CurlyBegin         => formatter.write_str("{"),
             Self::CurlyClose         => formatter.write_str("}"),
             Self::Dot                => formatter.write_str("."),
@@ -235,8 +262,8 @@ impl TokenClass {
     }
 
     #[rustfmt::skip]
-    fn parse_text(text: &str) -> Self {
-        match text {
+    fn parse_text(text: &str, point: Point) -> Result<Self, ErrorKind> {
+        Ok(match text {
             "true"      => Self::Boolean(true),
             "false"     => Self::Boolean(false),
             "function"  => Self::Function,
@@ -255,6 +282,8 @@ impl TokenClass {
             "or"        => Self::Or,
             "("         => Self::ParenthesisBegin,
             ")"         => Self::ParenthesisClose,
+            "["         => Self::SquareBegin,
+            "]"         => Self::SquareClose,
             "{"         => Self::CurlyBegin,
             "}"         => Self::CurlyClose,
             "."         => Self::Dot,
@@ -277,20 +306,24 @@ impl TokenClass {
             "<="        => Self::LTE,
             "!="        => Self::EqualNot,
             _ => {
-                if let Ok(decimal) = text.parse::<f32>() {
-                    Self::Decimal(decimal)
-                } else if let Ok(integer) = text.parse::<i32>() {
+                if let Ok(integer) = text.parse::<i64>() {
                     Self::Integer(integer)
-                } else {
+                } else if let Ok(decimal) = text.parse::<f64>() {
+                    Self::Decimal(decimal)
+                } else if text.starts_with("\"") && text.ends_with("\"") {
                     Self::String(text.to_string())
+                } else {
+                    Self::Identifier(Identifier::from_string(text.to_string(), point)?)
                 }
             }
-        }
+        })
+
     }
 
     #[rustfmt::skip]
     pub fn kind(&self) -> TokenKind {
         match self {
+            Self::Identifier(_)      => TokenKind::Identifier,
             Self::String(_)          => TokenKind::String,
             Self::Integer(_)         => TokenKind::Integer,
             Self::Decimal(_)         => TokenKind::Decimal,
@@ -311,6 +344,8 @@ impl TokenClass {
             Self::Or                 => TokenKind::Or,
             Self::ParenthesisBegin   => TokenKind::ParenthesisBegin,
             Self::ParenthesisClose   => TokenKind::ParenthesisClose,
+            Self::SquareBegin        => TokenKind::SquareBegin,
+            Self::SquareClose        => TokenKind::SquareClose,
             Self::CurlyBegin         => TokenKind::CurlyBegin,
             Self::CurlyClose         => TokenKind::CurlyClose,
             Self::Dot                => TokenKind::Dot,
@@ -338,6 +373,7 @@ impl TokenClass {
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind {
+    Identifier,
     String,
     Integer,
     Decimal,
@@ -358,6 +394,8 @@ pub enum TokenKind {
     Or,
     ParenthesisBegin,
     ParenthesisClose,
+    SquareBegin,
+    SquareClose,
     CurlyBegin,
     CurlyClose,
     Dot,
@@ -385,6 +423,7 @@ impl Display for TokenKind {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
+            Self::Identifier         => formatter.write_str("Identifier"),
             Self::String             => formatter.write_str("String"),
             Self::Integer            => formatter.write_str("Integer"),
             Self::Decimal            => formatter.write_str("Decimal"),
@@ -405,6 +444,8 @@ impl Display for TokenKind {
             Self::Or                 => formatter.write_str("or"),
             Self::ParenthesisBegin   => formatter.write_str("("),
             Self::ParenthesisClose   => formatter.write_str(")"),
+            Self::SquareBegin        => formatter.write_str("["),
+            Self::SquareClose        => formatter.write_str("]"),
             Self::CurlyBegin         => formatter.write_str("{"),
             Self::CurlyClose         => formatter.write_str("}"),
             Self::Dot                => formatter.write_str("."),
