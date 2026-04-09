@@ -3,6 +3,7 @@ use crate::stage_1::buffer::*;
 use crate::stage_1::helper::*;
 use crate::stage_1::token::*;
 use crate::stage_2::scope::*;
+use crate::stage_4::buffer::ArgumentBuffer;
 
 //================================================================
 
@@ -91,7 +92,7 @@ impl Instruction {
 
 #[derive(Debug, Clone)]
 pub struct Condition {
-    pub value: Option<String>,
+    pub value: Option<Expression>,
     pub block: Block,
     pub child: Option<Box<Condition>>,
 }
@@ -103,9 +104,16 @@ impl Condition {
                 token_buffer.want(TokenKind::Else)?;
 
                 // else (value) branch.
-                if token_buffer.want_peek(TokenKind::String) {
-                    let value = Some(token_buffer.want(TokenKind::String)?.class.inner_string());
+                if token_buffer.want_peek(TokenKind::CurlyBegin) {
+                    let block = Block::parse_token(token_buffer)?;
 
+                    Ok(Self {
+                        value: None,
+                        block,
+                        child: None,
+                    })
+                } else {
+                    let value = Expression::parse_token(token_buffer, 0.0)?; //Some(token_buffer.want(TokenKind::String)?.class.inner_string());
                     let block = Block::parse_token(token_buffer)?;
 
                     let child = if token_buffer.want_peek(TokenKind::Else) {
@@ -115,24 +123,15 @@ impl Condition {
                     };
 
                     Ok(Self {
-                        value,
+                        value: Some(value),
                         block,
                         child,
-                    })
-                } else {
-                    let block = Block::parse_token(token_buffer)?;
-
-                    Ok(Self {
-                        value: None,
-                        block,
-                        child: None,
                     })
                 }
             } else {
                 token_buffer.want(TokenKind::If)?;
 
-                let value = Some(token_buffer.want(TokenKind::String)?.class.inner_string());
-
+                let value = Expression::parse_token(token_buffer, 0.0)?;
                 let block = Block::parse_token(token_buffer)?;
 
                 let child = if token_buffer.want_peek(TokenKind::Else) {
@@ -142,12 +141,16 @@ impl Condition {
                 };
 
                 Ok(Self {
-                    value,
+                    value: Some(value),
                     block,
                     child,
                 })
             }
         })
+    }
+
+    pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
+        Ok(())
     }
 }
 
@@ -175,7 +178,7 @@ impl Return {
 #[derive(Debug, Clone)]
 pub enum IterationValue {
     Iterational(Assignment),
-    Conditional(Identifier),
+    Conditional(Expression),
 }
 
 #[derive(Debug, Clone)]
@@ -189,7 +192,7 @@ impl Iteration {
         token_buffer.parse(ErrorHint::Iteration, |token_buffer| {
             token_buffer.want(TokenKind::Loop)?;
 
-            let value = if token_buffer.want_peek(TokenKind::String) {
+            let value = if token_buffer.want_peek(TokenKind::Identifier) {
                 if let Some(token) = token_buffer.peek_ahead(1)
                     && token.class.kind() == TokenKind::Definition
                 {
@@ -197,7 +200,10 @@ impl Iteration {
                         token_buffer,
                     )?))
                 } else {
-                    Some(IterationValue::Conditional(token_buffer.want_identifier()?))
+                    Some(IterationValue::Conditional(Expression::parse_token(
+                        token_buffer,
+                        0.0,
+                    )?))
                 }
             } else {
                 None
@@ -207,6 +213,19 @@ impl Iteration {
 
             Ok(Self { value, block })
         })
+    }
+
+    pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
+        if let Some(value) = &self.value {
+            match value {
+                IterationValue::Iterational(assignment) => assignment.analyze(scope)?,
+                IterationValue::Conditional(expression) => expression.analyze(scope)?,
+            };
+        }
+
+        self.block.analyze(scope, true)?;
+
+        Ok(())
     }
 }
 
@@ -410,6 +429,13 @@ impl Expression {
             }
         })
     }
+
+    pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
+        // TO-DO soft evaluation where we analyze if a variable is or isn't in scope,
+        // do type-checking, etc.
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -450,6 +476,8 @@ impl Definition {
 
         Variable::type_check(&self.span, &self.kind, scope)?;
 
+        self.value.analyze(scope)?;
+
         Ok(())
     }
 }
@@ -481,19 +509,28 @@ impl Assignment {
     pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
         if let Some(variable) = scope.get_declaration(self.name.clone()) {
             match variable {
-                Declaration::Definition(_) => Ok(()),
-                _ => {
+                Declaration::Definition(_) => {
                     Ok(())
-                    // TO-DO throw error on assignment to non-variable
+                    // TO-DO type check that whatever we're assigning to the
+                    // definition is valid.
                 }
+                _ => Err(Error::new_info(
+                    ErrorInfo::new_point(self.span.clone(), Some(self.name.point)),
+                    ErrorKind::InvalidAssignment(self.name.clone()),
+                    Some(ErrorHint::Assignment),
+                )),
             }
         } else {
             Err(Error::new_info(
                 ErrorInfo::new_point(self.span.clone(), Some(self.name.point)),
-                ErrorKind::UnknownVariable(self.name.clone()),
+                ErrorKind::UnknownSymbol(self.name.clone()),
                 Some(ErrorHint::Assignment),
             ))
-        }
+        };
+
+        self.value.analyze(scope)?;
+
+        Ok(())
     }
 }
 
@@ -544,18 +581,69 @@ impl Invocation {
         if let Some(declaration) = scope.get_declaration(self.name.clone()) {
             match declaration {
                 Declaration::Function(_) => {
-                    Ok(())
                     // TO-DO type check and validate the function is receiving every argument
+                    for expression in &self.list {
+                        expression.analyze(scope)?;
+                    }
+
+                    Ok(())
                 }
-                _ => {
-                    todo!()
-                    // TO-DO throw error
+                Declaration::FunctionNative(_) => {
+                    // TO-DO type check and validate the function is receiving every argument
+                    for expression in &self.list {
+                        expression.analyze(scope)?;
+                    }
+
+                    Ok(())
                 }
+                _ => Err(Error::new_info(
+                    ErrorInfo::new_token(self.span.clone(), None),
+                    ErrorKind::InvalidInvocation(self.name.clone()),
+                    Some(ErrorHint::Invocation),
+                )),
             }
         } else {
             Err(Error::new_info(
                 ErrorInfo::new_token(self.span.clone(), None),
-                ErrorKind::UnknownVariable(self.name.clone()),
+                ErrorKind::UnknownSymbol(self.name.clone()),
+                Some(ErrorHint::Invocation),
+            ))
+        }
+    }
+
+    pub fn execute(&self, scope: &Scope) -> Result<(), Error> {
+        if let Some(declaration) = scope.get_declaration(self.name.clone()) {
+            match declaration {
+                Declaration::Function(function) => {
+                    // TO-DO type check and validate the function is receiving every argument
+                    for expression in &self.list {
+                        expression.analyze(scope)?;
+                    }
+
+                    function.execute(scope);
+
+                    Ok(())
+                }
+                Declaration::FunctionNative(function) => {
+                    // TO-DO type check and validate the function is receiving every argument
+                    for expression in &self.list {
+                        expression.analyze(scope)?;
+                    }
+
+                    function(ArgumentBuffer::new(self.list.clone(), scope)?);
+
+                    Ok(())
+                }
+                _ => Err(Error::new_info(
+                    ErrorInfo::new_token(self.span.clone(), None),
+                    ErrorKind::InvalidInvocation(self.name.clone()),
+                    Some(ErrorHint::Invocation),
+                )),
+            }
+        } else {
+            Err(Error::new_info(
+                ErrorInfo::new_token(self.span.clone(), None),
+                ErrorKind::UnknownSymbol(self.name.clone()),
                 Some(ErrorHint::Invocation),
             ))
         }
@@ -612,7 +700,7 @@ impl Block {
         })
     }
 
-    pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
+    pub fn analyze(&self, scope: &Scope, iteration: bool) -> Result<(), Error> {
         let mut scope_block = Scope::new(Some(Box::new(scope.clone())));
 
         for instruction in &self.code {
@@ -638,18 +726,85 @@ impl Block {
                 Instruction::Definition(definition) => definition.analyze(&mut scope_block)?,
                 Instruction::Assignment(assignment) => assignment.analyze(&scope_block)?,
                 Instruction::Invocation(invocation) => invocation.analyze(&scope_block)?,
-                /*
-                Instruction::Condition(condition) => todo!(),
-                Instruction::Iteration(iteration) => todo!(),
-                */
-                Instruction::Block(block) => block.analyze(&scope_block)?,
+                Instruction::Condition(condition) => condition.analyze(&scope_block)?,
+                Instruction::Iteration(iteration) => iteration.analyze(&scope_block)?,
+                Instruction::Block(block) => block.analyze(&scope_block, false)?,
                 Instruction::Skip => {
-                    // TO-DO error: skip outside of interation loop
+                    if !iteration {
+                        // TO-DO use actual span data.
+                        return Err(Error::new_kind(
+                            ErrorKind::InvalidSkip,
+                            Some(ErrorHint::Iteration),
+                        ));
+                    }
                 }
                 Instruction::Exit => {
-                    // TO-DO error: exit outside of interation loop
+                    if !iteration {
+                        // TO-DO use actual span data.
+                        return Err(Error::new_kind(
+                            ErrorKind::InvalidExit,
+                            Some(ErrorHint::Iteration),
+                        ));
+                    }
                 }
                 /*
+                Instruction::Return(_) => todo!(),
+                */
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn execute(&self, scope: &Scope, iteration: bool) -> Result<(), Error> {
+        let mut scope_block = Scope::new(Some(Box::new(scope.clone())));
+
+        for instruction in &self.code {
+            match instruction {
+                Instruction::Function(function) => scope_block.set_declaration(
+                    function.name.clone(),
+                    Declaration::Function(function.clone()),
+                ),
+                Instruction::Structure(structure) => scope_block.set_declaration(
+                    structure.name.clone(),
+                    Declaration::Structure(structure.clone()),
+                ),
+                Instruction::Enumerate(enumerate) => scope_block.set_declaration(
+                    enumerate.name.clone(),
+                    Declaration::Enumerate(enumerate.clone()),
+                ),
+                _ => {}
+            }
+        }
+
+        for instruction in &self.code {
+            match instruction {
+                //Instruction::Definition(definition) => definition.analyze(&mut scope_block)?,
+                //Instruction::Assignment(assignment) => assignment.analyze(&scope_block)?,
+                Instruction::Invocation(invocation) => invocation.execute(&scope_block)?,
+                /*
+                Instruction::Condition(condition) => condition.analyze(&scope_block)?,
+                Instruction::Iteration(iteration) => iteration.analyze(&scope_block)?,
+                Instruction::Block(block) => block.analyze(&scope_block, false)?,
+                Instruction::Skip => {
+                    if !iteration {
+                        // TO-DO use actual span data.
+                        return Err(Error::new_kind(
+                            ErrorKind::InvalidSkip,
+                            Some(ErrorHint::Iteration),
+                        ));
+                    }
+                }
+                Instruction::Exit => {
+                    if !iteration {
+                        // TO-DO use actual span data.
+                        return Err(Error::new_kind(
+                            ErrorKind::InvalidExit,
+                            Some(ErrorHint::Iteration),
+                        ));
+                    }
+                }
                 Instruction::Return(_) => todo!(),
                 */
                 _ => {}
@@ -731,7 +886,13 @@ impl Function {
             Variable::type_check(&self.span, leave, scope)?;
         }
 
-        self.block.analyze(scope)?;
+        self.block.analyze(scope, false)?;
+
+        Ok(())
+    }
+
+    pub fn execute(&self, scope: &Scope) -> Result<(), Error> {
+        self.block.execute(scope, false)?;
 
         Ok(())
     }

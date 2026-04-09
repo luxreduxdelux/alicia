@@ -3,6 +3,8 @@ use crate::stage_1::buffer::*;
 use crate::stage_1::helper::*;
 use crate::stage_1::token::*;
 use crate::stage_2::construct::*;
+use crate::stage_4::buffer::*;
+use std::fmt::Debug;
 
 //================================================================
 
@@ -13,6 +15,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub enum Declaration {
     Function(Function),
+    FunctionNative(Box<fn(ArgumentBuffer) -> ()>),
     Structure(Structure),
     Enumerate(Enumerate),
     Definition(Definition),
@@ -20,6 +23,7 @@ pub enum Declaration {
 
 #[derive(Debug, Clone)]
 pub struct Scope {
+    pub source: Vec<Source>,
     pub symbol: HashMap<String, Declaration>,
     pub parent: Option<Box<Self>>,
 }
@@ -27,12 +31,15 @@ pub struct Scope {
 impl Scope {
     pub fn new(parent: Option<Box<Self>>) -> Self {
         Self {
+            source: Vec::default(),
             symbol: HashMap::default(),
             parent,
         }
     }
 
     pub fn parse_buffer(&mut self, mut token_buffer: TokenBuffer) -> Result<(), Error> {
+        self.source.push(token_buffer.source.clone());
+
         while let Some(token) = token_buffer.peek() {
             match token.class {
                 TokenClass::Function => {

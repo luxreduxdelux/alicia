@@ -92,7 +92,7 @@ impl TokenSpan {
 }
 
 pub struct TokenBuffer {
-    source: Source,
+    pub source: Source,
     buffer: Vec<Token>,
     cursor: usize,
     span: TokenSpan,

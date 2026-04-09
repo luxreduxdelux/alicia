@@ -36,7 +36,7 @@ impl Source {
 
 //================================================================
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Point {
     pub x: usize,
     pub y: usize,

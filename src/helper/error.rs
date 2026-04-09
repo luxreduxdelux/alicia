@@ -251,8 +251,16 @@ pub enum ErrorKind {
     UnknownTokenGlobal(Token),
     #[error("unknown token \"{0}\".")]
     UnknownToken(Token),
-    #[error("unknown variable \"{0}\".")]
-    UnknownVariable(Identifier),
+    #[error("unknown symbol \"{0}\".")]
+    UnknownSymbol(Identifier),
+    #[error("\"{0}\" is not a valid function to invoke.")]
+    InvalidInvocation(Identifier),
+    #[error("\"{0}\" is not a valid variable to assign.")]
+    InvalidAssignment(Identifier),
+    #[error("cannot \"skip\" outside of an iteration block.")]
+    InvalidSkip,
+    #[error("cannot \"exit\" outside of an iteration block.")]
+    InvalidExit,
     #[error("file \"{0}\" not found.")]
     FileNotFound(String),
     #[error("was expecting \"{0}\", got \"{1}\" instead.")]

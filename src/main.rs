@@ -6,8 +6,12 @@ mod stage_4; // Run-time stage.
 
 //================================================================
 
+use crate::stage_1::helper::Point;
 use helper::error::*;
-use stage_1::{buffer::TokenBuffer, helper::Source};
+use stage_1::{
+    buffer::TokenBuffer,
+    helper::{Identifier, Source},
+};
 use stage_2::scope::*;
 use stage_3::analysis::*;
 
@@ -16,8 +20,15 @@ use stage_3::analysis::*;
 fn run() -> Result<(), Error> {
     let mut scope = Scope::new(None);
     scope.parse_buffer(TokenBuffer::new(Source::new_file("src/test.alicia")?)?)?;
+    Analysis::analyze_tree(&mut scope)?;
 
-    Analysis::analyze_tree(scope)?;
+    let main = scope
+        .get_declaration(Identifier::from_string("main".to_string(), Point::default()).unwrap())
+        .cloned();
+
+    if let Some(Declaration::Function(function)) = main {
+        function.execute(&mut scope)?;
+    }
 
     Ok(())
 }
