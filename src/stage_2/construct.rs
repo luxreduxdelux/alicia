@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::helper::error::*;
 use crate::stage_1::buffer::*;
 use crate::stage_1::helper::*;
@@ -152,11 +154,35 @@ impl Condition {
     pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
         Ok(())
     }
+
+    pub fn execute(&self, scope: &Scope) -> Result<(), Error> {
+        if let Some(value) = &self.value {
+            let result = value.evaluate(scope)?;
+
+            match result {
+                Some(result) => match result {
+                    Value::Boolean(result) => {
+                        if result {
+                            self.block.execute(scope)?;
+                        } else if let Some(child) = &self.child {
+                            child.execute(scope)?;
+                        }
+                    }
+                    _ => todo!(),
+                },
+                None => todo!(),
+            }
+        } else {
+            self.block.execute(scope)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Return {
-    pub value: Option<Identifier>,
+    pub value: Option<Expression>,
 }
 
 impl Return {
@@ -164,11 +190,13 @@ impl Return {
         token_buffer.parse(ErrorHint::Return, |token_buffer| {
             token_buffer.want(TokenKind::Return)?;
 
-            let value = if token_buffer.want_peek(TokenKind::String) {
-                Some(token_buffer.want_identifier()?)
-            } else {
+            let value = if token_buffer.want_peek(TokenKind::ColonSemi) {
                 None
+            } else {
+                Some(Expression::parse_token(token_buffer, 0.0)?)
             };
+
+            token_buffer.want(TokenKind::ColonSemi)?;
 
             Ok(Self { value })
         })
@@ -227,9 +255,46 @@ impl Iteration {
 
         Ok(())
     }
+
+    pub fn execute(&self, scope: &Scope) -> Result<(), Error> {
+        if let Some(value) = &self.value {
+            match value {
+                IterationValue::Iterational(assignment) => todo!(),
+                IterationValue::Conditional(expression) => loop {
+                    let result = expression.evaluate(scope)?;
+
+                    match result {
+                        Some(result) => match result {
+                            Value::Boolean(result) => {
+                                if result {
+                                    self.block.execute(scope)?;
+                                } else {
+                                    break;
+                                }
+                            }
+                            _ => todo!(),
+                        },
+                        None => todo!(),
+                    }
+                },
+            }
+        } else {
+            loop {
+                let (result, exit) = self.block.execute_loop(scope)?;
+
+                if let Some(exit) = exit
+                    && exit
+                {
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpressionKind {
     Path,
     String,
@@ -239,12 +304,85 @@ pub enum ExpressionKind {
 }
 
 #[derive(Debug, Clone)]
+pub enum Value {
+    String(String),
+    Integer(i64),
+    Decimal(f64),
+    Boolean(bool),
+}
+
+impl Display for Value {
+    #[rustfmt::skip]
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String(value)  => formatter.write_str(&value.to_string()),
+            Self::Integer(value) => formatter.write_str(&value.to_string()),
+            Self::Decimal(value) => formatter.write_str(&value.to_string()),
+            Self::Boolean(value) => formatter.write_str(&value.to_string()),
+        }
+    }
+}
+
+impl Value {
+    pub fn as_string(&self) -> Result<String, Error> {
+        match self {
+            Self::String(value) => Ok(value.to_string()),
+            _ => panic!("value is not a decimal"),
+        }
+    }
+
+    pub fn as_integer(&self) -> Result<i64, Error> {
+        match self {
+            Self::Integer(value) => Ok(*value),
+            _ => panic!("value is not an integer"),
+        }
+    }
+
+    pub fn as_decimal(&self) -> Result<f64, Error> {
+        match self {
+            Self::Decimal(value) => Ok(*value),
+            _ => panic!("value is not a decimal"),
+        }
+    }
+
+    pub fn as_boolean(&self) -> Result<bool, Error> {
+        match self {
+            Self::Boolean(value) => Ok(*value),
+            _ => panic!("value is not a decimal"),
+        }
+    }
+
+    #[rustfmt::skip]
+    pub fn kind(&self) -> ExpressionKind {
+        match self {
+            Self::String(_)     => ExpressionKind::String,
+            Self::Integer(_)    => ExpressionKind::Integer,
+            Self::Decimal(_)    => ExpressionKind::Decimal,
+            Self::Boolean(_)    => ExpressionKind::Boolean,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum ExpressionValue {
     Path(Path),
     String(String),
     Integer(i64),
     Decimal(f64),
     Boolean(bool),
+}
+
+impl Display for ExpressionValue {
+    #[rustfmt::skip]
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Path(_)        => formatter.write_str("Path"),
+            Self::String(value)  => formatter.write_str(&value.to_string()),
+            Self::Integer(value) => formatter.write_str(&value.to_string()),
+            Self::Decimal(value) => formatter.write_str(&value.to_string()),
+            Self::Boolean(value) => formatter.write_str(&value.to_string()),
+        }
+    }
 }
 
 impl ExpressionValue {
@@ -277,22 +415,36 @@ impl ExpressionValue {
         }
     }
 
-    fn as_integer(&self) -> i64 {
+    pub fn as_string(&self) -> Result<String, Error> {
         match self {
-            Self::Integer(value) => *value,
+            Self::String(value) => Ok(value.to_string()),
+            _ => panic!("value is not a decimal"),
+        }
+    }
+
+    pub fn as_integer(&self) -> Result<i64, Error> {
+        match self {
+            Self::Integer(value) => Ok(*value),
             _ => panic!("value is not an integer"),
         }
     }
 
-    fn as_decimal(&self) -> f64 {
+    pub fn as_decimal(&self) -> Result<f64, Error> {
         match self {
-            Self::Decimal(value) => *value,
+            Self::Decimal(value) => Ok(*value),
+            _ => panic!("value is not a decimal"),
+        }
+    }
+
+    pub fn as_boolean(&self) -> Result<bool, Error> {
+        match self {
+            Self::Boolean(value) => Ok(*value),
             _ => panic!("value is not a decimal"),
         }
     }
 
     #[rustfmt::skip]
-    fn kind(&self) -> ExpressionKind {
+    pub fn kind(&self) -> ExpressionKind {
         match self {
             Self::Path(_)       => ExpressionKind::Path,
             Self::String(_)     => ExpressionKind::String,
@@ -386,42 +538,78 @@ impl Expression {
         })
     }
 
-    pub fn evaluate(&self, scope: &Scope) -> Result<ExpressionValue, Error> {
+    pub fn evaluate(&self, scope: &Scope) -> Result<Option<Value>, Error> {
         Ok(match self {
-            Expression::Value(expression_value) => expression_value.clone(),
+            Expression::Value(value) => match value {
+                ExpressionValue::Path(path) => {
+                    for entry in &path.list {
+                        match entry {
+                            PathKind::Identifier(identifier) => {
+                                if let Some(value) = scope.get_declaration(identifier.clone()) {
+                                    match value {
+                                        Declaration::Value(value) => {
+                                            return Ok(Some(value.clone()));
+                                        }
+                                        _ => todo!(),
+                                    }
+                                } else {
+                                    todo!()
+                                }
+                            }
+                            PathKind::Invocation(invocation) => {
+                                return Ok(invocation.execute(scope)?);
+                            }
+                            _ => todo!(),
+                        }
+                    }
+
+                    None
+                }
+                ExpressionValue::String(value) => Some(Value::String(value.to_string())),
+                ExpressionValue::Integer(value) => Some(Value::Integer(*value)),
+                ExpressionValue::Decimal(value) => Some(Value::Decimal(*value)),
+                ExpressionValue::Boolean(value) => Some(Value::Boolean(*value)),
+            },
             Expression::Operation(operator, a, b) => {
                 let a = a.evaluate(scope)?;
                 let b = b.evaluate(scope)?;
-                let kind_a = a.kind();
-                let kind_b = b.kind();
 
-                if kind_a == kind_b {
-                    match kind_a {
-                        ExpressionKind::Path => todo!(),
-                        ExpressionKind::String => todo!(),
-                        ExpressionKind::Integer => {
-                            let a = a.as_integer();
-                            let b = b.as_integer();
+                if let Some(a) = a
+                    && let Some(b) = b
+                {
+                    let kind_a = a.kind();
+                    let kind_b = b.kind();
 
-                            match operator {
-                                ExpressionOperator::Add => ExpressionValue::Integer(a + b),
-                                ExpressionOperator::Subtract => ExpressionValue::Integer(a - b),
-                                ExpressionOperator::Multiply => ExpressionValue::Integer(a * b),
-                                ExpressionOperator::Divide => ExpressionValue::Integer(a / b),
+                    if kind_a == kind_b {
+                        match kind_a {
+                            ExpressionKind::Path => todo!(),
+                            ExpressionKind::String => todo!(),
+                            ExpressionKind::Integer => {
+                                let a = a.as_integer()?;
+                                let b = b.as_integer()?;
+
+                                Some(match operator {
+                                    ExpressionOperator::Add => Value::Integer(a + b),
+                                    ExpressionOperator::Subtract => Value::Integer(a - b),
+                                    ExpressionOperator::Multiply => Value::Integer(a * b),
+                                    ExpressionOperator::Divide => Value::Integer(a / b),
+                                })
                             }
-                        }
-                        ExpressionKind::Decimal => {
-                            let a = a.as_decimal();
-                            let b = b.as_decimal();
+                            ExpressionKind::Decimal => {
+                                let a = a.as_decimal()?;
+                                let b = b.as_decimal()?;
 
-                            match operator {
-                                ExpressionOperator::Add => ExpressionValue::Decimal(a + b),
-                                ExpressionOperator::Subtract => ExpressionValue::Decimal(a - b),
-                                ExpressionOperator::Multiply => ExpressionValue::Decimal(a * b),
-                                ExpressionOperator::Divide => ExpressionValue::Decimal(a / b),
+                                Some(match operator {
+                                    ExpressionOperator::Add => Value::Decimal(a + b),
+                                    ExpressionOperator::Subtract => Value::Decimal(a - b),
+                                    ExpressionOperator::Multiply => Value::Decimal(a * b),
+                                    ExpressionOperator::Divide => Value::Decimal(a / b),
+                                })
                             }
+                            ExpressionKind::Boolean => todo!(),
                         }
-                        ExpressionKind::Boolean => todo!(),
+                    } else {
+                        panic!("evaluate: a is null, or b is null");
                     }
                 } else {
                     panic!("evaluate: type mismatch");
@@ -458,9 +646,7 @@ impl Definition {
             token_buffer.want(TokenKind::Definition)?;
             let value = Expression::parse_token(token_buffer, 0.0)?;
 
-            println!("{value:#?}");
-
-            //println!("{:?}", value.evaluate());
+            token_buffer.want(TokenKind::ColonSemi)?;
 
             Ok(Self {
                 span: token_buffer.get_span(),
@@ -480,6 +666,16 @@ impl Definition {
 
         Ok(())
     }
+
+    pub fn execute(&self, scope: &mut Scope) -> Result<(), Error> {
+        let value = self.value.evaluate(scope)?;
+
+        if let Some(value) = value {
+            scope.set_declaration(self.name.clone(), Declaration::Value(value));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -496,6 +692,7 @@ impl Assignment {
             let name = token_buffer.want_identifier()?;
             let kind = token_buffer.want_definition()?;
             let value = Expression::parse_token(token_buffer, 0.0)?;
+            token_buffer.want(TokenKind::ColonSemi)?;
 
             Ok(Self {
                 span: token_buffer.get_span(),
@@ -526,9 +723,19 @@ impl Assignment {
                 ErrorKind::UnknownSymbol(self.name.clone()),
                 Some(ErrorHint::Assignment),
             ))
-        };
+        }?;
 
         self.value.analyze(scope)?;
+
+        Ok(())
+    }
+
+    pub fn execute(&self, scope: &mut Scope) -> Result<(), Error> {
+        let value = self.value.evaluate(scope)?;
+
+        if let Some(value) = value {
+            scope.set_declaration(self.name.clone(), Declaration::Value(value));
+        }
 
         Ok(())
     }
@@ -556,8 +763,6 @@ impl Invocation {
 
                 list.push(Expression::parse_token(token_buffer, 0.0)?);
 
-                token_buffer.print_state();
-
                 if let Some(token) = token_buffer.peek()
                     && token.class.kind() == TokenKind::Comma
                 {
@@ -568,6 +773,8 @@ impl Invocation {
             }
 
             token_buffer.want(TokenKind::ParenthesisClose)?;
+
+            token_buffer.want(TokenKind::ColonSemi)?;
 
             Ok(Self {
                 span: token_buffer.get_span(),
@@ -611,7 +818,7 @@ impl Invocation {
         }
     }
 
-    pub fn execute(&self, scope: &Scope) -> Result<(), Error> {
+    pub fn execute(&self, scope: &Scope) -> Result<Option<Value>, Error> {
         if let Some(declaration) = scope.get_declaration(self.name.clone()) {
             match declaration {
                 Declaration::Function(function) => {
@@ -620,9 +827,7 @@ impl Invocation {
                         expression.analyze(scope)?;
                     }
 
-                    function.execute(scope);
-
-                    Ok(())
+                    function.execute(scope)
                 }
                 Declaration::FunctionNative(function) => {
                     // TO-DO type check and validate the function is receiving every argument
@@ -630,9 +835,7 @@ impl Invocation {
                         expression.analyze(scope)?;
                     }
 
-                    function(ArgumentBuffer::new(self.list.clone(), scope)?);
-
-                    Ok(())
+                    (function.call)(ArgumentBuffer::new(self.list.clone(), scope)?)
                 }
                 _ => Err(Error::new_info(
                     ErrorInfo::new_token(self.span.clone(), None),
@@ -666,6 +869,8 @@ impl Indexation {
             let expression = Expression::parse_token(token_buffer, 0.0)?;
 
             token_buffer.want(TokenKind::SquareClose)?;
+
+            token_buffer.want(TokenKind::ColonSemi)?;
 
             Ok(Self { name, expression })
         })
@@ -757,7 +962,7 @@ impl Block {
         Ok(())
     }
 
-    pub fn execute(&self, scope: &Scope, iteration: bool) -> Result<(), Error> {
+    pub fn execute(&self, scope: &Scope) -> Result<Option<Value>, Error> {
         let mut scope_block = Scope::new(Some(Box::new(scope.clone())));
 
         for instruction in &self.code {
@@ -778,40 +983,114 @@ impl Block {
             }
         }
 
+        // TO-DO only return from this code block on the return instruction.
         for instruction in &self.code {
             match instruction {
-                //Instruction::Definition(definition) => definition.analyze(&mut scope_block)?,
-                //Instruction::Assignment(assignment) => assignment.analyze(&scope_block)?,
-                Instruction::Invocation(invocation) => invocation.execute(&scope_block)?,
-                /*
-                Instruction::Condition(condition) => condition.analyze(&scope_block)?,
-                Instruction::Iteration(iteration) => iteration.analyze(&scope_block)?,
-                Instruction::Block(block) => block.analyze(&scope_block, false)?,
-                Instruction::Skip => {
-                    if !iteration {
-                        // TO-DO use actual span data.
-                        return Err(Error::new_kind(
-                            ErrorKind::InvalidSkip,
-                            Some(ErrorHint::Iteration),
-                        ));
+                Instruction::Definition(definition) => {
+                    definition.execute(&mut scope_block)?;
+                }
+                Instruction::Assignment(assignment) => {
+                    assignment.execute(&mut scope_block)?;
+                }
+                Instruction::Invocation(invocation) => {
+                    invocation.execute(&scope_block)?;
+                }
+                Instruction::Condition(condition) => condition.execute(&scope_block)?,
+                Instruction::Iteration(iteration) => iteration.execute(&scope_block)?,
+                Instruction::Block(block) => {
+                    block.execute(&scope_block)?;
+                }
+                Instruction::Skip => todo!(),
+                Instruction::Exit => todo!(),
+                Instruction::Return(result) => {
+                    if let Some(value) = &result.value {
+                        return value.evaluate(&scope_block);
+                    } else {
+                        return Ok(None);
                     }
                 }
-                Instruction::Exit => {
-                    if !iteration {
-                        // TO-DO use actual span data.
-                        return Err(Error::new_kind(
-                            ErrorKind::InvalidExit,
-                            Some(ErrorHint::Iteration),
-                        ));
-                    }
-                }
-                Instruction::Return(_) => todo!(),
-                */
+                _ => todo!(),
+            };
+        }
+
+        Ok(None)
+    }
+
+    pub fn execute_loop(&self, scope: &Scope) -> Result<(Option<Value>, Option<bool>), Error> {
+        let mut scope_block = Scope::new(Some(Box::new(scope.clone())));
+
+        for instruction in &self.code {
+            match instruction {
+                Instruction::Function(function) => scope_block.set_declaration(
+                    function.name.clone(),
+                    Declaration::Function(function.clone()),
+                ),
+                Instruction::Structure(structure) => scope_block.set_declaration(
+                    structure.name.clone(),
+                    Declaration::Structure(structure.clone()),
+                ),
+                Instruction::Enumerate(enumerate) => scope_block.set_declaration(
+                    enumerate.name.clone(),
+                    Declaration::Enumerate(enumerate.clone()),
+                ),
                 _ => {}
             }
         }
 
-        Ok(())
+        // TO-DO only return from this code block on the return instruction.
+        for instruction in &self.code {
+            match instruction {
+                Instruction::Definition(definition) => {
+                    definition.execute(&mut scope_block)?;
+                }
+                Instruction::Assignment(assignment) => {
+                    assignment.execute(&mut scope_block)?;
+                }
+                Instruction::Invocation(invocation) => {
+                    invocation.execute(&scope_block)?;
+                }
+                Instruction::Condition(condition) => condition.execute(&scope_block)?,
+                Instruction::Iteration(iteration) => iteration.execute(&scope_block)?,
+                Instruction::Block(block) => {
+                    block.execute(&scope_block)?;
+                }
+                Instruction::Skip => {
+                    return Ok((None, Some(false)));
+                }
+                Instruction::Exit => {
+                    return Ok((None, Some(true)));
+                }
+                Instruction::Return(result) => {
+                    if let Some(value) = &result.value {
+                        return Ok((value.evaluate(&scope_block)?, None));
+                    } else {
+                        return Ok((None, None));
+                    }
+                }
+                _ => todo!(),
+            };
+        }
+
+        Ok((None, None))
+    }
+}
+
+pub type FunctionSignature = fn(ArgumentBuffer) -> Result<Option<Value>, Error>;
+
+#[derive(Debug, Clone)]
+pub struct FunctionNative {
+    pub call: FunctionSignature,
+    pub enter: Vec<ExpressionKind>,
+    pub leave: Option<ExpressionKind>,
+}
+
+impl FunctionNative {
+    pub fn new(
+        call: FunctionSignature,
+        enter: Vec<ExpressionKind>,
+        leave: Option<ExpressionKind>,
+    ) -> Self {
+        Self { call, enter, leave }
     }
 }
 
@@ -891,10 +1170,8 @@ impl Function {
         Ok(())
     }
 
-    pub fn execute(&self, scope: &Scope) -> Result<(), Error> {
-        self.block.execute(scope, false)?;
-
-        Ok(())
+    pub fn execute(&self, scope: &Scope) -> Result<Option<Value>, Error> {
+        self.block.execute(scope)
     }
 }
 
@@ -1050,8 +1327,6 @@ pub struct Path {
 
 impl Path {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.print_state();
-
         token_buffer.parse(ErrorHint::Use, |token_buffer| {
             let mut list = Vec::new();
 

@@ -71,8 +71,8 @@ impl Token {
                     inside_string = !inside_string;
                 }
                 '#' => return Ok(()),
-                '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ',' | '&' | '<' | '>' | '+'
-                | '-' | '*' | '/' => {
+                '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ';' | ',' | '&' | '<' | '>'
+                | '+' | '-' | '*' | '/' => {
                     if character == '.' && inside_number {
                         line_buffer.push(character);
                         continue;
@@ -185,6 +185,7 @@ pub enum TokenClass {
     CurlyClose,
     Dot,
     Colon,
+    ColonSemi,
     Comma,
     Ampersand,
     Definition,
@@ -235,6 +236,7 @@ impl Display for TokenClass {
             Self::CurlyClose         => formatter.write_str("}"),
             Self::Dot                => formatter.write_str("."),
             Self::Colon              => formatter.write_str(":"),
+            Self::ColonSemi          => formatter.write_str(";"),
             Self::Comma              => formatter.write_str(","),
             Self::Ampersand          => formatter.write_str("&"),
             Self::Definition         => formatter.write_str(":="),
@@ -288,6 +290,7 @@ impl TokenClass {
             "}"         => Self::CurlyClose,
             "."         => Self::Dot,
             ":"         => Self::Colon,
+            ";"         => Self::ColonSemi,
             ","         => Self::Comma,
             "&"         => Self::Ampersand,
             ":="        => Self::Definition,
@@ -311,6 +314,7 @@ impl TokenClass {
                 } else if let Ok(decimal) = text.parse::<f64>() {
                     Self::Decimal(decimal)
                 } else if text.starts_with("\"") && text.ends_with("\"") {
+                    let text = &text[1..text.len() - 1];
                     Self::String(text.to_string())
                 } else {
                     Self::Identifier(Identifier::from_string(text.to_string(), point)?)
@@ -350,6 +354,7 @@ impl TokenClass {
             Self::CurlyClose         => TokenKind::CurlyClose,
             Self::Dot                => TokenKind::Dot,
             Self::Colon              => TokenKind::Colon,
+            Self::ColonSemi          => TokenKind::ColonSemi,
             Self::Comma              => TokenKind::Comma,
             Self::Ampersand          => TokenKind::Ampersand,
             Self::Definition         => TokenKind::Definition,
@@ -400,6 +405,7 @@ pub enum TokenKind {
     CurlyClose,
     Dot,
     Colon,
+    ColonSemi,
     Comma,
     Ampersand,
     Definition,
@@ -450,6 +456,7 @@ impl Display for TokenKind {
             Self::CurlyClose         => formatter.write_str("}"),
             Self::Dot                => formatter.write_str("."),
             Self::Colon              => formatter.write_str(":"),
+            Self::ColonSemi          => formatter.write_str(";"),
             Self::Comma              => formatter.write_str(","),
             Self::Ampersand          => formatter.write_str("&"),
             Self::Definition         => formatter.write_str(":="),

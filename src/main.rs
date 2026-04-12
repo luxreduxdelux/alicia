@@ -27,7 +27,7 @@ fn run() -> Result<(), Error> {
         .cloned();
 
     if let Some(Declaration::Function(function)) = main {
-        function.execute(&mut scope)?;
+        println!("{:?}", function.execute(&mut scope)?);
     }
 
     Ok(())

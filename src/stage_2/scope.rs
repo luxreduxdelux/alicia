@@ -15,10 +15,11 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub enum Declaration {
     Function(Function),
-    FunctionNative(Box<fn(ArgumentBuffer) -> ()>),
+    FunctionNative(FunctionNative),
     Structure(Structure),
     Enumerate(Enumerate),
     Definition(Definition),
+    Value(Value),
 }
 
 #[derive(Debug, Clone)]
