@@ -317,7 +317,11 @@ impl TokenBuffer {
             self.cursor += 1;
 
             match next.class.kind() {
-                TokenKind::Add | TokenKind::Subtract | TokenKind::Multiply | TokenKind::Divide => {
+                TokenKind::Add
+                | TokenKind::Subtract
+                | TokenKind::Multiply
+                | TokenKind::Divide
+                | TokenKind::Equal => {
                     return Ok(next.clone());
                 }
                 _ => {
@@ -345,7 +349,8 @@ impl TokenBuffer {
                 TokenKind::Add      |
                 TokenKind::Subtract |
                 TokenKind::Multiply |
-                TokenKind::Divide   => return Some(next),
+                TokenKind::Divide   |
+                TokenKind::Equal => return Some(next),
                 _ => return None,
             }
         }

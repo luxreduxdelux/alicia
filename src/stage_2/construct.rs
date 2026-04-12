@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use crate::helper::error::*;
 use crate::stage_1::buffer::*;
 use crate::stage_1::helper::*;
@@ -7,6 +5,11 @@ use crate::stage_1::token::*;
 use crate::stage_2::scope::*;
 use crate::stage_4::buffer::ArgumentBuffer;
 
+//================================================================
+
+use std::collections::HashMap;
+
+use std::fmt::Display;
 //================================================================
 
 #[derive(Debug, Clone)]
@@ -301,6 +304,7 @@ pub enum ExpressionKind {
     Integer,
     Decimal,
     Boolean,
+    Structure,
 }
 
 #[derive(Debug, Clone)]
@@ -309,16 +313,18 @@ pub enum Value {
     Integer(i64),
     Decimal(f64),
     Boolean(bool),
+    Structure(StructureV),
 }
 
 impl Display for Value {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::String(value)  => formatter.write_str(&value.to_string()),
-            Self::Integer(value) => formatter.write_str(&value.to_string()),
-            Self::Decimal(value) => formatter.write_str(&value.to_string()),
-            Self::Boolean(value) => formatter.write_str(&value.to_string()),
+            Self::String(value)    => formatter.write_str(&value.to_string()),
+            Self::Integer(value)   => formatter.write_str(&value.to_string()),
+            Self::Decimal(value)   => formatter.write_str(&value.to_string()),
+            Self::Boolean(value)   => formatter.write_str(&value.to_string()),
+            Self::Structure(value) => formatter.write_str(&value.to_string()),
         }
     }
 }
@@ -359,6 +365,7 @@ impl Value {
             Self::Integer(_)    => ExpressionKind::Integer,
             Self::Decimal(_)    => ExpressionKind::Decimal,
             Self::Boolean(_)    => ExpressionKind::Boolean,
+            Self::Structure(_)  => ExpressionKind::Structure,
         }
     }
 }
@@ -370,17 +377,19 @@ pub enum ExpressionValue {
     Integer(i64),
     Decimal(f64),
     Boolean(bool),
+    Structure(StructureD),
 }
 
 impl Display for ExpressionValue {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Path(_)        => formatter.write_str("Path"),
-            Self::String(value)  => formatter.write_str(&value.to_string()),
-            Self::Integer(value) => formatter.write_str(&value.to_string()),
-            Self::Decimal(value) => formatter.write_str(&value.to_string()),
-            Self::Boolean(value) => formatter.write_str(&value.to_string()),
+            Self::Path(_)          => formatter.write_str("Path"),
+            Self::String(value)    => formatter.write_str(&value.to_string()),
+            Self::Integer(value)   => formatter.write_str(&value.to_string()),
+            Self::Decimal(value)   => formatter.write_str(&value.to_string()),
+            Self::Boolean(value)   => formatter.write_str(&value.to_string()),
+            Self::Structure(value) => todo!(),
         }
     }
 }
@@ -389,7 +398,15 @@ impl ExpressionValue {
     fn from_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         if let Some(token) = token_buffer.peek_value() {
             match token.class {
-                TokenClass::Identifier(_value) => Ok(Self::Path(Path::parse_token(token_buffer)?)),
+                TokenClass::Identifier(_value) => {
+                    if let Some(token) = token_buffer.peek_ahead(1)
+                        && token.class.kind() == TokenKind::CurlyBegin
+                    {
+                        return Ok(Self::Structure(StructureD::parse_token(token_buffer)?));
+                    }
+
+                    Ok(Self::Path(Path::parse_token(token_buffer)?))
+                }
                 TokenClass::String(value) => {
                     token_buffer.next();
                     Ok(Self::String(value))
@@ -451,6 +468,7 @@ impl ExpressionValue {
             Self::Integer(_)    => ExpressionKind::Integer,
             Self::Decimal(_)    => ExpressionKind::Decimal,
             Self::Boolean(_)    => ExpressionKind::Boolean,
+            Self::Structure(_)  => ExpressionKind::Structure,
         }
     }
 }
@@ -461,6 +479,7 @@ pub enum ExpressionOperator {
     Subtract,
     Multiply,
     Divide,
+    Equal,
 }
 
 impl ExpressionOperator {
@@ -471,6 +490,7 @@ impl ExpressionOperator {
             TokenKind::Subtract => Self::Subtract,
             TokenKind::Multiply => Self::Multiply,
             TokenKind::Divide   => Self::Divide,
+            TokenKind::Equal    => Self::Equal,
             _ => panic!(
                 "Alicia internal error: ExpressionValue::parse_token(): want_token() gave back a token that is not a possible value"
             ),
@@ -487,16 +507,18 @@ impl ExpressionOperator {
             Self::Subtract => Expression::Operation(Self::Subtract, token_a, token_b),
             Self::Multiply => Expression::Operation(Self::Multiply, token_a, token_b),
             Self::Divide   => Expression::Operation(Self::Divide,   token_a, token_b),
+            Self::Equal    => Expression::Operation(Self::Equal,    token_a, token_b),
         }
     }
 
     #[rustfmt::skip]
     fn bind_power(&self) -> (f32, f32) {
         match self {
-            ExpressionOperator::Add      => (1.0, 1.1),
-            ExpressionOperator::Subtract => (1.0, 1.1),
-            ExpressionOperator::Multiply => (2.0, 2.1),
-            ExpressionOperator::Divide   => (2.0, 2.1),
+            Self::Add      => (1.0, 1.1),
+            Self::Subtract => (1.0, 1.1),
+            Self::Multiply => (2.0, 2.1),
+            Self::Divide   => (2.0, 2.1),
+            Self::Equal    => (1.0, 1.1),
         }
     }
 }
@@ -542,18 +564,35 @@ impl Expression {
         Ok(match self {
             Expression::Value(value) => match value {
                 ExpressionValue::Path(path) => {
+                    let mut current = None;
+
                     for entry in &path.list {
                         match entry {
                             PathKind::Identifier(identifier) => {
                                 if let Some(value) = scope.get_declaration(identifier.clone()) {
                                     match value {
                                         Declaration::Value(value) => {
-                                            return Ok(Some(value.clone()));
+                                            current = Some(value.clone());
                                         }
                                         _ => todo!(),
                                     }
                                 } else {
-                                    todo!()
+                                    if let Some(current_p) = &mut current {
+                                        match current_p {
+                                            Value::Structure(structure) => {
+                                                if let Some(field) =
+                                                    structure.data.get(&identifier.text)
+                                                {
+                                                    current = Some(field.clone());
+                                                } else {
+                                                    panic!("unknown field: {identifier}")
+                                                }
+                                            }
+                                            _ => todo!(),
+                                        }
+                                    } else {
+                                        panic!("{entry:?}")
+                                    }
                                 }
                             }
                             PathKind::Invocation(invocation) => {
@@ -563,12 +602,15 @@ impl Expression {
                         }
                     }
 
-                    None
+                    current
                 }
                 ExpressionValue::String(value) => Some(Value::String(value.to_string())),
                 ExpressionValue::Integer(value) => Some(Value::Integer(*value)),
                 ExpressionValue::Decimal(value) => Some(Value::Decimal(*value)),
                 ExpressionValue::Boolean(value) => Some(Value::Boolean(*value)),
+                ExpressionValue::Structure(value) => {
+                    Some(Value::Structure(StructureV::new(value.clone(), scope)?))
+                }
             },
             Expression::Operation(operator, a, b) => {
                 let a = a.evaluate(scope)?;
@@ -593,6 +635,7 @@ impl Expression {
                                     ExpressionOperator::Subtract => Value::Integer(a - b),
                                     ExpressionOperator::Multiply => Value::Integer(a * b),
                                     ExpressionOperator::Divide => Value::Integer(a / b),
+                                    ExpressionOperator::Equal => Value::Boolean(a == b),
                                 })
                             }
                             ExpressionKind::Decimal => {
@@ -604,9 +647,11 @@ impl Expression {
                                     ExpressionOperator::Subtract => Value::Decimal(a - b),
                                     ExpressionOperator::Multiply => Value::Decimal(a * b),
                                     ExpressionOperator::Divide => Value::Decimal(a / b),
+                                    ExpressionOperator::Equal => Value::Boolean(a == b),
                                 })
                             }
                             ExpressionKind::Boolean => todo!(),
+                            ExpressionKind::Structure => todo!(),
                         }
                     } else {
                         panic!("evaluate: a is null, or b is null");
@@ -693,6 +738,21 @@ impl Assignment {
             let kind = token_buffer.want_definition()?;
             let value = Expression::parse_token(token_buffer, 0.0)?;
             token_buffer.want(TokenKind::ColonSemi)?;
+
+            Ok(Self {
+                span: token_buffer.get_span(),
+                name,
+                kind,
+                value,
+            })
+        })
+    }
+
+    pub fn parse_token_loose(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.parse(ErrorHint::Assignment, |token_buffer| {
+            let name = token_buffer.want_identifier()?;
+            let kind = token_buffer.want_definition()?;
+            let value = Expression::parse_token(token_buffer, 0.0)?;
 
             Ok(Self {
                 span: token_buffer.get_span(),
@@ -1242,6 +1302,71 @@ impl Variable {
 }
 
 //================================================================
+
+#[derive(Debug, Clone)]
+pub struct StructureD {
+    pub name: Identifier,
+    pub list: Vec<Assignment>,
+}
+
+impl StructureD {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.parse(ErrorHint::Structure, |token_buffer| {
+            let mut list = Vec::new();
+
+            let name = token_buffer.want_identifier()?;
+
+            token_buffer.want(TokenKind::CurlyBegin)?;
+
+            Instruction::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
+                list.push(Assignment::parse_token_loose(token_buffer)?);
+                Ok(())
+            })?;
+
+            token_buffer.want(TokenKind::CurlyClose)?;
+
+            Ok(Self { name, list })
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StructureV {
+    pub name: Identifier,
+    pub data: HashMap<String, Value>,
+}
+
+impl Display for StructureV {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{} ", self.name))?;
+
+        f.write_str("{\n")?;
+
+        for (k, v) in &self.data {
+            f.write_str(&format!("  {k}: {v},\n"))?;
+        }
+
+        f.write_str("}")?;
+
+        Ok(())
+    }
+}
+
+impl StructureV {
+    pub fn new(structure: StructureD, scope: &Scope) -> Result<Self, Error> {
+        let name = structure.name.clone();
+        let mut data = HashMap::default();
+
+        // TO-DO actual type checking
+        for assignment in structure.list {
+            if let Some(value) = assignment.value.evaluate(scope)? {
+                data.insert(assignment.name.text, value);
+            }
+        }
+
+        Ok(Self { name, data })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Structure {
