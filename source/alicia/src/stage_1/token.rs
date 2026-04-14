@@ -1,6 +1,6 @@
 use super::buffer::*;
 use super::helper::*;
-use crate::ErrorKind;
+use crate::helper::error::ErrorKind;
 
 //================================================================
 

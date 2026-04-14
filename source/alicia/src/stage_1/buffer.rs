@@ -277,7 +277,8 @@ impl TokenBuffer {
                 | TokenKind::String
                 | TokenKind::Integer
                 | TokenKind::Decimal
-                | TokenKind::Boolean => return Ok(next.clone()),
+                | TokenKind::Boolean
+                | TokenKind::SquareBegin => return Ok(next.clone()),
                 _ => {
                     return Err(Error::new_info(
                         ErrorInfo::new_token(self.get_span(), Some(next.clone())),
@@ -303,7 +304,8 @@ impl TokenBuffer {
                 | TokenKind::String
                 | TokenKind::Integer
                 | TokenKind::Decimal
-                | TokenKind::Boolean => return Some(next),
+                | TokenKind::Boolean
+                | TokenKind::SquareBegin => return Some(next),
                 _ => return None,
             }
         }

@@ -9,6 +9,7 @@ use thiserror::Error;
 
 //================================================================
 
+#[derive(Debug)]
 pub struct Error {
     info: Option<Box<ErrorInfo>>,
     hint: Option<Box<ErrorHint>>,
@@ -140,6 +141,7 @@ impl Display for Error {
 
 //================================================================
 
+#[derive(Debug)]
 pub struct ErrorInfo {
     token_span: TokenSpan,
     point: Option<Point>,
@@ -163,12 +165,13 @@ impl ErrorInfo {
 
 //================================================================
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ErrorHint {
     Global,
     Definition,
     Assignment,
     Invocation,
+    Indexation,
     Function,
     Variable,
     Structure,
@@ -196,6 +199,10 @@ impl ErrorHint {
             ErrorHint::Invocation => (
                 " parsing invocation".to_string(),
                 "\nexample invocation: foo()".to_string(),
+            ),
+            ErrorHint::Indexation => (
+                " parsing indexation".to_string(),
+                "\nexample indexation: foo[0]".to_string(),
             ),
             ErrorHint::Variable => (
                 " parsing variable".to_string(),

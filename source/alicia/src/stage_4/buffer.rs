@@ -10,7 +10,7 @@ pub struct ArgumentBuffer {
 }
 
 impl ArgumentBuffer {
-    pub fn new(expression_list: Vec<Expression>, scope: &Scope) -> Result<Self, Error> {
+    pub fn new(expression_list: Vec<Expression>, scope: &mut Scope) -> Result<Self, Error> {
         let mut buffer = Vec::new();
 
         for expression in expression_list {

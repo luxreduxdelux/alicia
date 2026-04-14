@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::helper::error::*;
 
 //================================================================
@@ -50,7 +52,7 @@ impl Point {
 
 //================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Identifier {
     pub text: String,
     pub point: Point,

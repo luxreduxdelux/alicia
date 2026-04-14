@@ -3,7 +3,6 @@ use crate::stage_1::buffer::*;
 use crate::stage_1::helper::*;
 use crate::stage_1::token::*;
 use crate::stage_2::construct::*;
-use crate::stage_4::buffer::*;
 use std::fmt::Debug;
 
 //================================================================
@@ -26,11 +25,11 @@ pub enum Declaration {
 pub struct Scope {
     pub source: Vec<Source>,
     pub symbol: HashMap<String, Declaration>,
-    pub parent: Option<Box<Self>>,
+    pub parent: Option<Box<*mut Self>>,
 }
 
 impl Scope {
-    pub fn new(parent: Option<Box<Self>>) -> Self {
+    pub fn new(parent: Option<Box<*mut Self>>) -> Self {
         Self {
             source: Vec::default(),
             symbol: HashMap::default(),
@@ -83,7 +82,8 @@ impl Scope {
         if let Some(declaration) = self.symbol.get(&name.text) {
             Some(declaration)
         } else if let Some(parent) = &self.parent {
-            parent.get_declaration(name)
+            let scope = **parent;
+            unsafe { scope.as_mut()?.get_declaration(name) }
         } else {
             None
         }
@@ -91,5 +91,14 @@ impl Scope {
 
     pub fn set_declaration(&mut self, name: Identifier, value: Declaration) {
         self.symbol.insert(name.to_string(), value);
+    }
+
+    pub fn set_assignment(&mut self, name: Identifier, value: Declaration) {
+        if self.symbol.contains_key(&name.text) {
+            self.symbol.insert(name.to_string(), value);
+        } else if let Some(parent) = &self.parent {
+            let scope = **parent;
+            unsafe { scope.as_mut().unwrap().set_assignment(name, value) }
+        }
     }
 }
