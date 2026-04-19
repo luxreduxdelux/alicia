@@ -315,7 +315,7 @@ impl TokenBuffer {
 
     pub fn want_operator(&mut self) -> Result<Token, Error> {
         if let Some(next) = self.buffer.get(self.cursor) {
-            self.span.push(&self.source, &next);
+            self.span.push(&self.source, next);
             self.cursor += 1;
 
             match next.class.kind() {
@@ -323,7 +323,8 @@ impl TokenBuffer {
                 | TokenKind::Subtract
                 | TokenKind::Multiply
                 | TokenKind::Divide
-                | TokenKind::Equal => {
+                | TokenKind::Equal
+                | TokenKind::Ampersand => {
                     return Ok(next.clone());
                 }
                 _ => {
@@ -344,15 +345,15 @@ impl TokenBuffer {
         ))
     }
 
-    #[rustfmt::skip]
     pub fn peek_operator(&mut self) -> Option<Token> {
         if let Some(next) = self.peek() {
             match next.class.kind() {
-                TokenKind::Add      |
-                TokenKind::Subtract |
-                TokenKind::Multiply |
-                TokenKind::Divide   |
-                TokenKind::Equal => return Some(next),
+                TokenKind::Add
+                | TokenKind::Subtract
+                | TokenKind::Multiply
+                | TokenKind::Divide
+                | TokenKind::Equal
+                | TokenKind::Ampersand => return Some(next),
                 _ => return None,
             }
         }

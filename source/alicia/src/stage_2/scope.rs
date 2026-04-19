@@ -12,13 +12,18 @@ use std::collections::HashMap;
 //================================================================
 
 #[derive(Debug, Clone)]
+pub struct FunctionNative {
+    pub name: String,
+    pub call: fn(),
+}
+
+#[derive(Debug, Clone)]
 pub enum Declaration {
     Function(Function),
     FunctionNative(FunctionNative),
     Structure(Structure),
     Enumerate(Enumerate),
     Definition(Definition),
-    Value(Value),
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +94,17 @@ impl Scope {
         }
     }
 
+    pub fn get_declaration_mutable(&mut self, name: Identifier) -> Option<&mut Declaration> {
+        if let Some(declaration) = self.symbol.get_mut(&name.text) {
+            Some(declaration)
+        } else if let Some(parent) = &self.parent {
+            let scope = **parent;
+            unsafe { scope.as_mut()?.get_declaration_mutable(name) }
+        } else {
+            None
+        }
+    }
+
     pub fn set_declaration(&mut self, name: Identifier, value: Declaration) {
         self.symbol.insert(name.to_string(), value);
     }
@@ -100,5 +116,15 @@ impl Scope {
             let scope = **parent;
             unsafe { scope.as_mut().unwrap().set_assignment(name, value) }
         }
+    }
+
+    pub fn get_root_mutable(&mut self) -> &mut Scope {
+        let mut scope = self;
+
+        while let Some(parent) = &scope.parent {
+            scope = unsafe { &mut ***parent };
+        }
+
+        scope
     }
 }
