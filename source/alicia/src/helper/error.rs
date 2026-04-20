@@ -1,6 +1,7 @@
 use crate::stage_1::buffer::*;
 use crate::stage_1::helper::*;
 use crate::stage_1::token::*;
+use crate::stage_2::construct::ExpressionKind;
 
 //================================================================
 
@@ -55,7 +56,7 @@ impl Error {
         }
     }
 
-    fn text_box(file: &str, token_span: &TokenSpan, point: Point) -> String {
+    fn text_box(file: &str, token_span: &TokenSpan, point: Option<Point>) -> String {
         let mut text_box = String::default();
         let line_size = token_span
             .list
@@ -64,7 +65,6 @@ impl Error {
         let line_size = (line_size.unwrap().1 + 1).to_string();
         let line_size = line_size.len() + 2;
 
-        text_box.push('\n');
         text_box.push('╭');
         text_box.push_str(&'─'.to_string().repeat(line_size));
         text_box.push('🭬');
@@ -79,6 +79,7 @@ impl Error {
         let slice = Self::slice_list(&token_span.list);
 
         for (text, line) in &slice {
+            let text = if slice.len() == 1 { text.trim() } else { text };
             let line = line + 1;
             let line_text = line.to_string();
 
@@ -89,11 +90,14 @@ impl Error {
             text_box.push(' ');
             text_box.push('│');
             text_box.push(' ');
+
             text_box.push_str(text);
             text_box.push('\n');
 
-            if line == point.y + 1 {
-                break;
+            if let Some(point) = point {
+                if line == point.y + 1 {
+                    break;
+                }
             }
         }
 
@@ -101,8 +105,10 @@ impl Error {
         text_box.push_str(&' '.to_string().repeat(line_size));
         text_box.push('│');
 
-        text_box.push_str(&' '.to_string().repeat(point.x));
-        text_box.push('─');
+        if let Some(point) = point {
+            text_box.push_str(&' '.to_string().repeat(point.x));
+            text_box.push('─');
+        }
 
         text_box.push('\n');
 
@@ -120,10 +126,18 @@ impl Display for Error {
                 Self::text_box(
                     &format!("{}:{}:{}", info.token_span.path, point.y + 1, point.x),
                     &info.token_span,
-                    *point,
+                    Some(*point),
                 )
             } else {
-                info.token_span.path.to_string()
+                Self::text_box(
+                    &format!(
+                        "{}:{}",
+                        info.token_span.path,
+                        info.token_span.line.unwrap().y + 1,
+                    ),
+                    &info.token_span,
+                    None,
+                )
             }
         } else {
             "".to_string()
@@ -135,7 +149,7 @@ impl Display for Error {
             (String::default(), String::default())
         };
 
-        f.write_str(&format!("error{context}: {}{text}{hint}", self.kind))
+        f.write_str(&format!("error{context}: {}\n{text}{hint}", self.kind))
     }
 }
 
@@ -278,4 +292,8 @@ pub enum ErrorKind {
     IncorrectIdentifierNumber(String, char),
     #[error("invalid identifier \"{0}\", cannot use symbol \"{1}\".")]
     IncorrectIdentifierSymbol(String, char),
+    #[error("was expecting a value of type \"{0:?}\", found \"{1:?}\" instead.")]
+    IncorrectKind(ExpressionKind, ExpressionKind),
+    #[error("cannot mix a value of type \"{0:?}\" and a value of type \"{1:?}\".")]
+    MixKind(ExpressionKind, ExpressionKind),
 }

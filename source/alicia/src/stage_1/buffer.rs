@@ -323,7 +323,15 @@ impl TokenBuffer {
                 | TokenKind::Subtract
                 | TokenKind::Multiply
                 | TokenKind::Divide
+                | TokenKind::Not
+                | TokenKind::And
+                | TokenKind::Or
+                | TokenKind::GT
+                | TokenKind::LT
                 | TokenKind::Equal
+                | TokenKind::GTE
+                | TokenKind::LTE
+                | TokenKind::EqualNot
                 | TokenKind::Ampersand => {
                     return Ok(next.clone());
                 }
@@ -352,7 +360,15 @@ impl TokenBuffer {
                 | TokenKind::Subtract
                 | TokenKind::Multiply
                 | TokenKind::Divide
+                | TokenKind::Not
+                | TokenKind::And
+                | TokenKind::Or
+                | TokenKind::GT
+                | TokenKind::LT
                 | TokenKind::Equal
+                | TokenKind::GTE
+                | TokenKind::LTE
+                | TokenKind::EqualNot
                 | TokenKind::Ampersand => return Some(next),
                 _ => return None,
             }

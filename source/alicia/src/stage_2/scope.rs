@@ -3,6 +3,7 @@ use crate::stage_1::buffer::*;
 use crate::stage_1::helper::*;
 use crate::stage_1::token::*;
 use crate::stage_2::construct::*;
+use crate::stage_4::machine::Argument;
 use std::fmt::Debug;
 
 //================================================================
@@ -12,9 +13,17 @@ use std::collections::HashMap;
 //================================================================
 
 #[derive(Debug, Clone)]
+pub enum NativeArgument {
+    Variable,
+    Constant(Vec<ExpressionKind>),
+}
+
+#[derive(Debug, Clone)]
 pub struct FunctionNative {
     pub name: String,
-    pub call: fn(),
+    pub call: fn(Argument),
+    pub enter: NativeArgument,
+    pub leave: ExpressionKind,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +90,17 @@ impl Scope {
         }
 
         Ok(())
+    }
+
+    pub fn print(&self) {
+        println!("scope: {:#?}", self.symbol);
+
+        if let Some(parent) = &self.parent {
+            let scope = **parent;
+            unsafe {
+                scope.as_ref().expect("REASON").print();
+            }
+        }
     }
 
     pub fn get_declaration(&self, name: Identifier) -> Option<&Declaration> {

@@ -15,13 +15,25 @@ fn run() -> Result<(), Error> {
     let main = machine.function.get("main").unwrap().clone();
 
     if let FunctionKind::Function(function) = main {
-        function.execute(&mut machine)
+        function.execute(
+            &mut machine,
+            vec![
+                Value::String("foo".to_string()),
+                Value::Integer(1),
+                Value::Decimal(1.5),
+                Value::Boolean(true),
+            ],
+        )
     }
 
     Ok(())
 }
 
 fn main() {
+    unsafe {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
+
     if let Err(error) = run() {
         println!("{error}");
     }

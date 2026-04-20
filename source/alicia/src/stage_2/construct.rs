@@ -233,7 +233,9 @@ impl Iteration {
         if let Some(value) = &self.value {
             match value {
                 IterationValue::Iterational(assignment) => assignment.analyze(scope)?,
-                IterationValue::Conditional(expression) => expression.analyze(scope)?,
+                IterationValue::Conditional(expression) => {
+                    expression.analyze(scope)?;
+                }
             };
         }
 
@@ -245,6 +247,7 @@ impl Iteration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpressionKind {
+    Null,
     Path,
     String,
     Integer,
@@ -254,8 +257,15 @@ pub enum ExpressionKind {
     Array,
 }
 
+impl ExpressionKind {
+    fn is_number(&self) -> bool {
+        *self == Self::Integer || *self == Self::Decimal
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ExpressionValue {
+    Null,
     Path(Path),
     String(String),
     Integer(i64),
@@ -269,6 +279,7 @@ impl Display for ExpressionValue {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Null             => formatter.write_str("Null"),
             Self::Path(_)          => formatter.write_str("Path"),
             Self::String(value)    => formatter.write_str(&value.to_string()),
             Self::Integer(value)   => formatter.write_str(&value.to_string()),
@@ -319,37 +330,10 @@ impl ExpressionValue {
         }
     }
 
-    pub fn as_string(&self) -> Result<String, Error> {
-        match self {
-            Self::String(value) => Ok(value.to_string()),
-            _ => panic!("value is not a decimal"),
-        }
-    }
-
-    pub fn as_integer(&self) -> Result<i64, Error> {
-        match self {
-            Self::Integer(value) => Ok(*value),
-            _ => panic!("value is not an integer"),
-        }
-    }
-
-    pub fn as_decimal(&self) -> Result<f64, Error> {
-        match self {
-            Self::Decimal(value) => Ok(*value),
-            _ => panic!("value is not a decimal"),
-        }
-    }
-
-    pub fn as_boolean(&self) -> Result<bool, Error> {
-        match self {
-            Self::Boolean(value) => Ok(*value),
-            _ => panic!("value is not a decimal"),
-        }
-    }
-
     #[rustfmt::skip]
     pub fn kind(&self) -> ExpressionKind {
         match self {
+            Self::Null          => ExpressionKind::Null,
             Self::Path(_)       => ExpressionKind::Path,
             Self::String(_)     => ExpressionKind::String,
             Self::Integer(_)    => ExpressionKind::Integer,
@@ -367,9 +351,16 @@ pub enum ExpressionOperator {
     Subtract,
     Multiply,
     Divide,
-    Negate,
-    Reference,
+    Not,
+    And,
+    Or,
+    GT,
+    LT,
     Equal,
+    GTE,
+    LTE,
+    EqualNot,
+    Reference,
 }
 
 impl ExpressionOperator {
@@ -380,8 +371,15 @@ impl ExpressionOperator {
             TokenKind::Subtract  => Self::Subtract,
             TokenKind::Multiply  => Self::Multiply,
             TokenKind::Divide    => Self::Divide,
+            TokenKind::Not       => Self::Not,
+            TokenKind::And       => Self::And,
+            TokenKind::Or        => Self::Or,
+            TokenKind::GT        => Self::GT,
+            TokenKind::LT        => Self::LT,
             TokenKind::Equal     => Self::Equal,
-            //TokenKind::Not     => Self::Negate,
+            TokenKind::GTE       => Self::GTE,
+            TokenKind::LTE       => Self::LTE,
+            TokenKind::EqualNot  => Self::EqualNot,
             TokenKind::Ampersand => Self::Reference,
             _ => panic!(
                 "Alicia internal error: ExpressionValue::parse_token(): want_token() gave back a token that is not a possible value"
@@ -410,7 +408,14 @@ impl ExpressionOperator {
             Self::Subtract => Expression::Operation(Self::Subtract, token_a, token_b),
             Self::Multiply => Expression::Operation(Self::Multiply, token_a, token_b),
             Self::Divide   => Expression::Operation(Self::Divide,   token_a, token_b),
+            Self::And      => Expression::Operation(Self::And,      token_a, token_b),
+            Self::Or       => Expression::Operation(Self::Or,       token_a, token_b),
+            Self::GT       => Expression::Operation(Self::GT,       token_a, token_b),
+            Self::LT       => Expression::Operation(Self::LT,       token_a, token_b),
             Self::Equal    => Expression::Operation(Self::Equal,    token_a, token_b),
+            Self::GTE      => Expression::Operation(Self::GTE,      token_a, token_b),
+            Self::LTE      => Expression::Operation(Self::LTE,      token_a, token_b),
+            Self::EqualNot => Expression::Operation(Self::EqualNot, token_a, token_b),
             x => panic!("incorrect parse_token_binary operator: {x:?}")
         }
     }
@@ -422,9 +427,17 @@ impl ExpressionOperator {
             Self::Subtract  => (1.0, 1.1),
             Self::Multiply  => (2.0, 2.1),
             Self::Divide    => (2.0, 2.1),
-            Self::Negate    => (2.1, 2.0),
-            Self::Reference => (2.1, 2.0),
+            // TO-DO add actual bind power to these
+            Self::Not       => (1.0, 1.1),
+            Self::And       => (1.0, 1.1),
+            Self::Or        => (1.0, 1.1),
+            Self::GT        => (1.0, 1.1),
+            Self::LT        => (1.0, 1.1),
             Self::Equal     => (1.0, 1.1),
+            Self::GTE       => (1.0, 1.1),
+            Self::LTE       => (1.0, 1.1),
+            Self::EqualNot  => (1.0, 1.1),
+            Self::Reference => (2.1, 2.0),
         }
     }
 }
@@ -476,14 +489,63 @@ impl Expression {
         })
     }
 
-    pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
-        // TO-DO soft evaluation where we analyze if a variable is or isn't in scope,
-        // do type-checking, etc.
+    #[rustfmt::skip]
+    pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
+        match self {
+            Expression::Value(value) => match value {
+                ExpressionValue::Path(path) => path.analyze(scope),
+                _ => Ok(value.kind()),
+            },
+            Expression::Operation(operator, e_a, e_b) => {
+                let a = e_a.analyze(scope)?;
+                let b = e_b.analyze(scope)?;
 
-        Ok(())
+                if a != b {
+                    // TO-DO add expression span.
+                    //return Err(Error::new_info(
+                    //    ErrorInfo::new_point(e_a.span.clone(), None),
+                    //    ErrorKind::MixKind(a, b),
+                    //    None,
+                    //));
+                    panic!("type mismatch: {:?} != {:?}", a, b);
+                }
+
+                if a.is_number() {
+                    match operator {
+                        ExpressionOperator::Add      => Ok(a),
+                        ExpressionOperator::Subtract => Ok(a),
+                        ExpressionOperator::Multiply => Ok(a),
+                        ExpressionOperator::Divide   => Ok(a),
+                        ExpressionOperator::GT       => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::LT       => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::Equal    => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::GTE      => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::LTE      => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
+                        _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
+                    }
+                } else if a == ExpressionKind::Boolean {
+                    match operator {
+                        ExpressionOperator::And      => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::Or       => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::Equal    => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
+                        _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
+                    }
+                } else {
+                    match operator {
+                        ExpressionOperator::Equal    => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
+                        _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
+                    }
+                }
+            }
+            _ => todo!(),
+        }
     }
 
-    pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
+    #[rustfmt::skip]
+    pub fn compile(&self, function: &mut MFunction) -> Result<(), Error> {
         match self {
             Expression::Value(value) => match value {
                 ExpressionValue::Path(path) => {
@@ -493,11 +555,14 @@ impl Expression {
                                 function.push(Instruction::Load(identifier.text.to_string()));
                             }
                             PathKind::Invocation(invocation) => {
-                                for expression in &invocation.list {
-                                    expression.compile(scope, function)?;
+                                for expression in invocation.list.iter().rev() {
+                                    expression.compile(function)?;
                                 }
 
-                                function.push(Instruction::Call(invocation.name.text.to_string()));
+                                function.push(Instruction::Call(
+                                    invocation.name.text.to_string(),
+                                    invocation.list.len(),
+                                ));
                             }
                             _ => todo!(),
                         }
@@ -518,14 +583,23 @@ impl Expression {
                 _ => todo!(),
             },
             Expression::Operation(operator, a, b) => {
-                a.compile(scope, function)?;
-                b.compile(scope, function)?;
+                a.compile(function)?;
+                b.compile(function)?;
 
                 match operator {
-                    ExpressionOperator::Add => function.push(Instruction::Add),
+                    ExpressionOperator::Add      => function.push(Instruction::Add),
                     ExpressionOperator::Subtract => function.push(Instruction::Subtract),
                     ExpressionOperator::Multiply => function.push(Instruction::Multiply),
-                    ExpressionOperator::Divide => function.push(Instruction::Divide),
+                    ExpressionOperator::Divide   => function.push(Instruction::Divide),
+                    ExpressionOperator::And      => function.push(Instruction::And),
+                    ExpressionOperator::Or       => function.push(Instruction::Or),
+                    ExpressionOperator::GT       => function.push(Instruction::GT),
+                    ExpressionOperator::LT       => function.push(Instruction::LT),
+                    ExpressionOperator::Equal    => function.push(Instruction::Equal),
+                    ExpressionOperator::GTE      => function.push(Instruction::GTE),
+                    ExpressionOperator::LTE      => function.push(Instruction::LTE),
+                    ExpressionOperator::EqualNot => function.push(Instruction::EqualNot),
+                    // TO-DO reference
                     _ => todo!(),
                 }
             }
@@ -540,7 +614,7 @@ impl Expression {
 pub struct Definition {
     pub span: TokenSpan,
     pub name: Identifier,
-    pub kind: Identifier,
+    pub kind: Option<Identifier>,
     pub value: Expression,
 }
 
@@ -550,8 +624,14 @@ impl Definition {
             token_buffer.want(TokenKind::Let)?;
             let name = token_buffer.want_identifier()?;
 
-            token_buffer.want(TokenKind::Colon)?;
-            let kind = token_buffer.want_identifier()?;
+            let kind = {
+                if token_buffer.want_peek(TokenKind::Colon) {
+                    token_buffer.want(TokenKind::Colon)?;
+                    Some(token_buffer.want_identifier()?)
+                } else {
+                    None
+                }
+            };
 
             token_buffer.want(TokenKind::Definition)?;
             let value = Expression::parse_token(token_buffer, 0.0)?;
@@ -567,21 +647,31 @@ impl Definition {
         })
     }
 
-    pub fn analyze(&self, scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze(&self, scope: &mut Scope) -> Result<ExpressionKind, Error> {
         scope.set_declaration(self.name.clone(), Declaration::Definition(self.clone()));
 
-        Variable::type_check(&self.span, &self.kind, scope)?;
+        let source = self.value.analyze(scope)?;
 
-        self.value.analyze(scope)?;
+        if let Some(kind) = &self.kind {
+            let target = Variable::type_check(&self.span, kind, scope)?;
 
-        Ok(())
+            if source != target {
+                return Err(Error::new_info(
+                    ErrorInfo::new_point(self.span.clone(), None),
+                    ErrorKind::IncorrectKind(source, target),
+                    None,
+                ));
+            }
+        }
+
+        Ok(source)
     }
 
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
         // TO-DO soft evaluation where we analyze if a variable is or isn't in scope,
         // do type-checking, etc.
 
-        self.value.compile(scope, function)?;
+        self.value.compile(function)?;
         function.push(Instruction::Save(self.name.text.clone()));
 
         Ok(())
@@ -701,28 +791,41 @@ impl Invocation {
         })
     }
 
-    pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
-        Ok(())
-
-        // TO-DO perform scope & structure scope checking.
-        /*
+    pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
         if let Some(declaration) = scope.get_declaration(self.name.clone()) {
             match declaration {
-                Declaration::Function(_) => {
-                    // TO-DO type check and validate the function is receiving every argument
-                    for expression in &self.list {
-                        expression.analyze(scope)?;
+                Declaration::Function(function) => {
+                    if self.list.len() != function.enter.len() {
+                        panic!("analyze: incorrect argument count for function");
                     }
 
-                    Ok(())
+                    for (i, expression) in self.list.iter().enumerate() {
+                        let source = expression.analyze(scope)?;
+                        let target = &function.enter[i];
+                        let target = Variable::type_check(&target.span, &target.kind, scope)?;
+
+                        if source != target {
+                            panic!("type mismatch: {source:?} != {target:?}");
+                        }
+                    }
+
+                    if let Some(leave) = &function.leave {
+                        return Variable::type_check(&function.span, leave, scope);
+                    }
+
+                    Ok(ExpressionKind::Null)
                 }
-                Declaration::FunctionNative(_) => {
+                Declaration::FunctionNative(function) => {
+                    //if self.list.len() != function.enter.len() {
+                    //    panic!("analyze: incorrect argument count for function native");
+                    //}
+
                     // TO-DO type check and validate the function is receiving every argument
                     for expression in &self.list {
                         expression.analyze(scope)?;
                     }
 
-                    Ok(())
+                    Ok(function.leave.clone())
                 }
                 _ => Err(Error::new_info(
                     ErrorInfo::new_token(self.span.clone(), None),
@@ -737,7 +840,6 @@ impl Invocation {
                 Some(ErrorHint::Invocation),
             ))
         }
-        */
     }
 
     pub fn compile(&self, scope: &Scope) -> Result<(), Error> {
@@ -820,9 +922,13 @@ impl Block {
 
         for statement in &self.code {
             match statement {
-                Statement::Definition(definition) => definition.analyze(&mut scope_block)?,
+                Statement::Definition(definition) => {
+                    definition.analyze(&mut scope_block)?;
+                }
                 Statement::Assignment(assignment) => assignment.analyze(&scope_block)?,
-                Statement::Expression(expression) => expression.analyze(&scope_block)?,
+                Statement::Expression(expression) => {
+                    expression.analyze(&scope_block)?;
+                }
                 Statement::Condition(condition) => condition.analyze(&mut scope_block)?,
                 Statement::Iteration(iteration) => iteration.analyze(&mut scope_block)?,
                 Statement::Block(block) => block.analyze(&mut scope_block, false)?,
@@ -858,7 +964,7 @@ impl Block {
         for statement in &self.code {
             match statement {
                 Statement::Definition(definition) => definition.compile(scope, function)?,
-                Statement::Expression(expression) => expression.compile(scope, function)?,
+                Statement::Expression(expression) => expression.compile(function)?,
                 _ => {}
             }
         }
@@ -922,7 +1028,18 @@ impl Function {
 
     pub fn analyze(&self, scope: &mut Scope) -> Result<(), Error> {
         for variable in &self.enter {
-            variable.analyze(scope)?
+            let definition = Definition {
+                span: variable.span.clone(),
+                name: variable.name.clone(),
+                kind: Some(variable.kind.clone()),
+                value: Expression::Value(ExpressionValue::Path(Path {
+                    list: vec![PathKind::Identifier(variable.name.clone())],
+                })),
+            };
+
+            scope.set_declaration(variable.name.clone(), Declaration::Definition(definition));
+
+            variable.analyze(scope)?;
         }
 
         if let Some(leave) = &self.leave {
@@ -936,6 +1053,10 @@ impl Function {
 
     pub fn compile(&self, scope: &Scope) -> Result<MFunction, Error> {
         let mut function = MFunction::default();
+
+        for parameter in &self.enter {
+            function.push_parameter(parameter.name.text.clone());
+        }
 
         self.block.compile(scope, &mut function)?;
 
@@ -975,36 +1096,21 @@ impl Variable {
         })
     }
 
-    fn type_check(span: &TokenSpan, name: &Identifier, scope: &Scope) -> Result<(), Error> {
-        match name.text.as_str() {
-            "String" => {}
-            "Integer" => {}
-            "Decimal" => {}
-            "Boolean" => {}
-            "Any" => {}
-            _ => {
-                if let Some(kind) = scope.get_declaration(name.clone()) {
-                    match kind {
-                        Declaration::Structure(_) => return Ok(()),
-                        Declaration::Enumerate(_) => return Ok(()),
-                        _ => {
-                            // TO-DO throw error on unsupported construct for variable type.
-                        }
-                    }
-                }
-
-                return Err(Error::new_info(
-                    ErrorInfo::new_point(span.clone(), Some(name.point)),
-                    ErrorKind::UnknownKind(name.text.clone()),
-                    Some(ErrorHint::Variable),
-                ));
-            }
-        }
-
-        Ok(())
+    fn type_check(
+        span: &TokenSpan,
+        name: &Identifier,
+        scope: &Scope,
+    ) -> Result<ExpressionKind, Error> {
+        Ok(match name.text.as_str() {
+            "String" => ExpressionKind::String,
+            "Integer" => ExpressionKind::Integer,
+            "Decimal" => ExpressionKind::Decimal,
+            "Boolean" => ExpressionKind::Boolean,
+            x => panic!("unknown variable type {x}"),
+        })
     }
 
-    pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
+    pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
         Self::type_check(&self.span, &self.kind, scope)
     }
 }
@@ -1123,7 +1229,7 @@ impl Structure {
 
     pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
         for (_, variable) in &self.variable {
-            variable.analyze(scope)?
+            variable.analyze(scope)?;
         }
 
         Ok(())
@@ -1202,6 +1308,31 @@ impl Path {
 
             Ok(Self { list })
         })
+    }
+
+    pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
+        for path in &self.list {
+            match path {
+                PathKind::Identifier(identifier) => {
+                    if let Some(value) = scope.get_declaration(identifier.clone()) {
+                        match value {
+                            Declaration::Definition(definition) => Variable::type_check(
+                                &definition.span,
+                                &definition.kind.clone().unwrap(),
+                                scope,
+                            )?,
+                            _ => todo!(),
+                        }
+                    } else {
+                        panic!("unknown symbol: {}", identifier.text);
+                    }
+                }
+                PathKind::Invocation(invocation) => invocation.analyze(scope)?,
+                _ => todo!(),
+            };
+        }
+
+        Ok(ExpressionKind::Null)
     }
 }
 
