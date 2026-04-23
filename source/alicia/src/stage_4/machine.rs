@@ -1,4 +1,5 @@
 use crate::helper::error::Error;
+use crate::stage_2::construct::Structure as StructureD;
 use crate::stage_2::scope::Declaration;
 use crate::stage_2::scope::FunctionNative;
 use crate::stage_2::scope::Scope;
@@ -34,8 +35,6 @@ impl Machine {
                 Declaration::Function(f) => {
                     let compile = f.compile(scope)?;
 
-                    println!("function: {compile:#?}");
-
                     function.insert(f.name.text.clone(), FunctionKind::Function(compile));
                 }
                 Declaration::FunctionNative(f) => {
@@ -54,10 +53,6 @@ impl Machine {
         })
     }
 
-    fn set_function(&mut self, name: String, function: FunctionKind) {
-        self.function.insert(name, function);
-    }
-
     fn get_function(&self, name: &str) -> FunctionKind {
         if let Some(value) = self.function.get(name) {
             value.clone()
@@ -66,6 +61,7 @@ impl Machine {
         }
     }
 
+    /*
     fn save(&mut self, name: String, value: Value) {
         self.table.insert(name, value);
     }
@@ -77,6 +73,7 @@ impl Machine {
             panic!("Machine::load(): No value by the name of \"{name}\".")
         }
     }
+    */
 
     fn push(&mut self, value: Value) {
         self.stack.push(value)
@@ -129,6 +126,16 @@ impl Machine {
             panic!("Machine::pop_boolean(): Invalid value \"{pop:?}\".")
         }
     }
+
+    fn pop_structure(&mut self) -> Structure {
+        let pop = self.pop();
+
+        if let Value::Structure(value) = pop {
+            value
+        } else {
+            panic!("Machine::pop_structure(): Invalid value \"{pop:?}\".")
+        }
+    }
 }
 
 //================================================================
@@ -139,16 +146,51 @@ pub enum Value {
     Integer(i64),
     Decimal(f64),
     Boolean(bool),
+    Structure(Structure),
+    //Enumerate(Enumerate),
+    //Array(Vec<Value>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Structure {
+    pub kind: String,
+    pub data: HashMap<String, Value>,
+}
+
+impl Structure {
+    fn new(kind: String) -> Self {
+        Self {
+            kind,
+            data: HashMap::default(),
+        }
+    }
 }
 
 impl Display for Value {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::String(value)  => formatter.write_str(value),
-            Value::Integer(value) => formatter.write_str(&value.to_string()),
-            Value::Decimal(value) => formatter.write_str(&value.to_string()),
-            Value::Boolean(value) => formatter.write_str(&value.to_string()),
+            Value::String(value)    => formatter.write_str(value),
+            Value::Integer(value)   => formatter.write_str(&value.to_string()),
+            Value::Decimal(value)   => formatter.write_str(&value.to_string()),
+            Value::Boolean(value)   => formatter.write_str(&value.to_string()),
+            Value::Structure(value) => {
+                formatter.write_str(&value.kind)?;
+
+                formatter.write_str(" { ")?;
+
+                let length = value.data.len();
+
+                for (i, (k, v)) in value.data.iter().enumerate() {
+                    if i == length - 1 {
+                        formatter.write_str(&format!("{k}: {v} "))?;
+                    } else {
+                        formatter.write_str(&format!("{k}: {v}, "))?;
+                    }
+                }
+
+                formatter.write_str("}")
+            }
         }
     }
 }
@@ -161,6 +203,16 @@ impl Value {
             panic!("Value::as_string(): Value is not a string.")
         }
     }
+
+    pub fn kind(&self) -> ValueKind {
+        match self {
+            Self::String(_) => ValueKind::String,
+            Self::Integer(_) => ValueKind::Integer,
+            Self::Decimal(_) => ValueKind::Decimal,
+            Self::Boolean(_) => ValueKind::Boolean,
+            Self::Structure(_) => ValueKind::Structure,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +221,26 @@ pub enum ValueKind {
     Integer,
     Decimal,
     Boolean,
+    Structure,
+    Enumerate,
+    Array,
+    Table,
+}
+
+impl Display for ValueKind {
+    #[rustfmt::skip]
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String    => formatter.write_str("String"),
+            Self::Integer   => formatter.write_str("Integer"),
+            Self::Decimal   => formatter.write_str("Decimal"),
+            Self::Boolean   => formatter.write_str("Boolean"),
+            Self::Structure => formatter.write_str("Structure"),
+            Self::Enumerate => formatter.write_str("Enumerate"),
+            Self::Array     => formatter.write_str("Array"),
+            Self::Table     => formatter.write_str("Table"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -186,9 +258,12 @@ pub enum Instruction {
     GTE,
     LTE,
     EqualNot,
+    PushStructure(StructureD),
     Push(Value),
     Save(String),
     Load(String),
+    LoadField(String),
+    //LoadIndex(usize),
     Call(String, usize),
 }
 
@@ -281,6 +356,15 @@ impl Function {
                         _ => panic!("Divide: Invalid value {a:?}"),
                     }
                 }
+                Instruction::PushStructure(structure) => {
+                    let mut s = Structure::new(structure.name.text.clone());
+
+                    for variable in &structure.variable {
+                        s.data.insert(variable.0.to_string(), machine.pop());
+                    }
+
+                    machine.push(Value::Structure(s));
+                }
                 Instruction::Push(value) => {
                     machine.push(value.clone());
                 }
@@ -290,13 +374,21 @@ impl Function {
                     memory.insert(name.to_string(), value);
                 }
                 Instruction::Load(name) => {
-                    let value = memory.get(name).cloned().unwrap();
+                    let value = memory
+                        .get(name)
+                        .cloned()
+                        .expect(&format!("No variable by the name of {name}."));
                     //let value = machine.load(name);
                     machine.push(value);
                 }
+                Instruction::LoadField(name) => {
+                    let value = machine.pop_structure();
+                    let value = value.data.get(name).unwrap();
+                    machine.push(value.clone());
+                }
                 Instruction::Call(name, arity) => {
                     let function = machine.get_function(name);
-                    let argument = Argument::new(machine, *arity);
+                    let argument = Argument::new(machine, memory.clone(), *arity);
 
                     match function {
                         FunctionKind::Function(function) => {
@@ -371,6 +463,7 @@ impl Function {
                             let b = machine.pop_boolean();
                             machine.push(Value::Boolean(b == a));
                         }
+                        _ => todo!(),
                     }
                 }
                 Instruction::GTE => {
@@ -423,6 +516,7 @@ impl Function {
                             let b = machine.pop_boolean();
                             machine.push(Value::Boolean(b != a));
                         }
+                        _ => todo!(),
                     }
                 }
             }
@@ -433,12 +527,13 @@ impl Function {
 }
 
 pub struct Argument {
+    pub local: HashMap<String, Value>,
     pub buffer: Vec<Value>,
     cursor: usize,
 }
 
 impl Argument {
-    fn new(machine: &mut Machine, arity: usize) -> Self {
+    fn new(machine: &mut Machine, local: HashMap<String, Value>, arity: usize) -> Self {
         let mut buffer = Vec::new();
 
         for _ in 0..arity {
@@ -446,6 +541,7 @@ impl Argument {
         }
 
         Self {
+            local,
             buffer,
             cursor: usize::default(),
         }

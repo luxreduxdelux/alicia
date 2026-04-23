@@ -9,6 +9,7 @@ use crate::stage_4::machine::Value;
 
 //================================================================
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt::Display;
 
@@ -161,7 +162,7 @@ impl Condition {
         })
     }
 
-    pub fn analyze(&self, scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze(&self, _: &mut Scope) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -229,7 +230,7 @@ impl Iteration {
         })
     }
 
-    pub fn analyze(&self, scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
         if let Some(value) = &self.value {
             match value {
                 IterationValue::Iterational(assignment) => assignment.analyze(scope)?,
@@ -245,7 +246,7 @@ impl Iteration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub enum ExpressionKind {
     Null,
     Path,
@@ -253,8 +254,19 @@ pub enum ExpressionKind {
     Integer,
     Decimal,
     Boolean,
-    Structure,
+    Structure(Identifier),
+    Enumerate(Identifier),
     Array,
+}
+
+impl PartialEq for ExpressionKind {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Structure(l0), Self::Structure(r0)) => l0.text == r0.text,
+            (Self::Enumerate(l0), Self::Enumerate(r0)) => l0.text == r0.text,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
 }
 
 impl ExpressionKind {
@@ -285,8 +297,7 @@ impl Display for ExpressionValue {
             Self::Integer(value)   => formatter.write_str(&value.to_string()),
             Self::Decimal(value)   => formatter.write_str(&value.to_string()),
             Self::Boolean(value)   => formatter.write_str(&value.to_string()),
-            Self::Structure(value) => todo!(),
-            Self::Array(value)     => todo!(),
+            _ => todo!(),
         }
     }
 }
@@ -339,7 +350,8 @@ impl ExpressionValue {
             Self::Integer(_)    => ExpressionKind::Integer,
             Self::Decimal(_)    => ExpressionKind::Decimal,
             Self::Boolean(_)    => ExpressionKind::Boolean,
-            Self::Structure(_)  => ExpressionKind::Structure,
+            Self::Structure(x)  => ExpressionKind::Structure(x.name.clone()),
+            //Self::Enumerate(x)  => ExpressionKind::Enumerate(x.name.clone()),
             Self::Array(_)      => ExpressionKind::Array,
         }
     }
@@ -545,29 +557,10 @@ impl Expression {
     }
 
     #[rustfmt::skip]
-    pub fn compile(&self, function: &mut MFunction) -> Result<(), Error> {
+    pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
         match self {
             Expression::Value(value) => match value {
-                ExpressionValue::Path(path) => {
-                    for path in &path.list {
-                        match path {
-                            PathKind::Identifier(identifier) => {
-                                function.push(Instruction::Load(identifier.text.to_string()));
-                            }
-                            PathKind::Invocation(invocation) => {
-                                for expression in invocation.list.iter().rev() {
-                                    expression.compile(function)?;
-                                }
-
-                                function.push(Instruction::Call(
-                                    invocation.name.text.to_string(),
-                                    invocation.list.len(),
-                                ));
-                            }
-                            _ => todo!(),
-                        }
-                    }
-                }
+                ExpressionValue::Path(path) => path.compile(scope, function)?,
                 ExpressionValue::String(value) => {
                     function.push(Instruction::Push(Value::String(value.to_string())))
                 }
@@ -580,11 +573,27 @@ impl Expression {
                 ExpressionValue::Boolean(value) => {
                     function.push(Instruction::Push(Value::Boolean(*value)))
                 }
+                ExpressionValue::Structure(value) => {
+                    let structure = scope.get_declaration(value.name.clone()).unwrap();
+
+                    match structure {
+                        Declaration::Structure(structure) => {
+
+                            for field in structure.variable.keys().rev() {
+                                let assignment = value.list.get(field).unwrap();
+                                assignment.value.compile(scope, function)?;
+                            }
+
+                            function.push(Instruction::PushStructure(structure.clone()))
+                        },
+                        x => panic!("declaration is not a structure: {x:?}")
+                    }
+                }
                 _ => todo!(),
             },
             Expression::Operation(operator, a, b) => {
-                a.compile(function)?;
-                b.compile(function)?;
+                a.compile(scope, function)?;
+                b.compile(scope, function)?;
 
                 match operator {
                     ExpressionOperator::Add      => function.push(Instruction::Add),
@@ -658,20 +667,20 @@ impl Definition {
             if source != target {
                 return Err(Error::new_info(
                     ErrorInfo::new_point(self.span.clone(), None),
-                    ErrorKind::IncorrectKind(source, target),
+                    ErrorKind::IncorrectKind(target, source),
                     None,
                 ));
             }
         }
 
+        // TO-DO add type to this thing if missing.
+        //self.kind = Some(source);
+
         Ok(source)
     }
 
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
-        // TO-DO soft evaluation where we analyze if a variable is or isn't in scope,
-        // do type-checking, etc.
-
-        self.value.compile(function)?;
+        self.value.compile(scope, function)?;
         function.push(Instruction::Save(self.name.text.clone()));
 
         Ok(())
@@ -805,7 +814,11 @@ impl Invocation {
                         let target = Variable::type_check(&target.span, &target.kind, scope)?;
 
                         if source != target {
-                            panic!("type mismatch: {source:?} != {target:?}");
+                            return Err(Error::new_info(
+                                ErrorInfo::new_point(self.span.clone(), None),
+                                ErrorKind::IncorrectKind(target, source),
+                                None,
+                            ));
                         }
                     }
 
@@ -842,7 +855,7 @@ impl Invocation {
         }
     }
 
-    pub fn compile(&self, scope: &Scope) -> Result<(), Error> {
+    pub fn compile(&self, _: &Scope) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -876,6 +889,7 @@ impl Indexation {
 #[derive(Debug, Clone)]
 pub struct Block {
     pub code: Vec<Statement>,
+    pub scope: Option<Scope>,
 }
 
 impl Block {
@@ -895,11 +909,11 @@ impl Block {
 
             token_buffer.want(TokenKind::CurlyClose)?;
 
-            Ok(Self { code })
+            Ok(Self { code, scope: None })
         })
     }
 
-    pub fn analyze(&self, scope: &mut Scope, iteration: bool) -> Result<(), Error> {
+    pub fn analyze(&mut self, scope: &mut Scope, iteration: bool) -> Result<(), Error> {
         let mut scope_block = Scope::new(Some(Box::new(scope)));
 
         for statement in &self.code {
@@ -920,18 +934,26 @@ impl Block {
             }
         }
 
-        for statement in &self.code {
+        for statement in &mut self.code {
             match statement {
                 Statement::Definition(definition) => {
                     definition.analyze(&mut scope_block)?;
                 }
-                Statement::Assignment(assignment) => assignment.analyze(&scope_block)?,
+                Statement::Assignment(assignment) => {
+                    assignment.analyze(&scope_block)?;
+                }
                 Statement::Expression(expression) => {
                     expression.analyze(&scope_block)?;
                 }
-                Statement::Condition(condition) => condition.analyze(&mut scope_block)?,
-                Statement::Iteration(iteration) => iteration.analyze(&mut scope_block)?,
-                Statement::Block(block) => block.analyze(&mut scope_block, false)?,
+                Statement::Condition(condition) => {
+                    condition.analyze(&mut scope_block)?;
+                }
+                Statement::Iteration(iteration) => {
+                    iteration.analyze(&mut scope_block)?;
+                }
+                Statement::Block(block) => {
+                    block.analyze(&mut scope_block, false)?;
+                }
                 Statement::Skip => {
                     if !iteration {
                         // TO-DO use actual span data.
@@ -957,14 +979,18 @@ impl Block {
             }
         }
 
+        self.scope = Some(scope_block);
+
         Ok(())
     }
 
-    pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
+    pub fn compile(&self, _: &Scope, function: &mut MFunction) -> Result<(), Error> {
+        let block = self.scope.as_ref().unwrap();
+
         for statement in &self.code {
             match statement {
-                Statement::Definition(definition) => definition.compile(scope, function)?,
-                Statement::Expression(expression) => expression.compile(function)?,
+                Statement::Definition(definition) => definition.compile(block, function)?,
+                Statement::Expression(expression) => expression.compile(block, function)?,
                 _ => {}
             }
         }
@@ -1026,7 +1052,7 @@ impl Function {
         })
     }
 
-    pub fn analyze(&self, scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
         for variable in &self.enter {
             let definition = Definition {
                 span: variable.span.clone(),
@@ -1037,6 +1063,8 @@ impl Function {
                 })),
             };
 
+            // TO-DO incorrect, this is setting each parameter as a global value and not inside the scope!
+            // do this inside the scope.
             scope.set_declaration(variable.name.clone(), Declaration::Definition(definition));
 
             variable.analyze(scope)?;
@@ -1097,7 +1125,7 @@ impl Variable {
     }
 
     fn type_check(
-        span: &TokenSpan,
+        _: &TokenSpan,
         name: &Identifier,
         scope: &Scope,
     ) -> Result<ExpressionKind, Error> {
@@ -1106,7 +1134,19 @@ impl Variable {
             "Integer" => ExpressionKind::Integer,
             "Decimal" => ExpressionKind::Decimal,
             "Boolean" => ExpressionKind::Boolean,
-            x => panic!("unknown variable type {x}"),
+            _ => {
+                let definition = scope.get_declaration(name.clone()).unwrap();
+
+                match definition {
+                    Declaration::Structure(structure) => {
+                        ExpressionKind::Structure(structure.name.clone())
+                    }
+                    Declaration::Enumerate(enumerate) => {
+                        ExpressionKind::Enumerate(enumerate.name.clone())
+                    }
+                    _ => panic!("type_check: definition is not a structure or enumeration"),
+                }
+            }
         })
     }
 
@@ -1147,20 +1187,31 @@ impl ArrayD {
 #[derive(Debug, Clone)]
 pub struct StructureD {
     pub name: Identifier,
-    pub list: Vec<Assignment>,
+    pub list: HashMap<String, Assignment>,
 }
 
 impl StructureD {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Structure, |token_buffer| {
-            let mut list = Vec::new();
+            let mut list = HashMap::new();
 
             let name = token_buffer.want_identifier()?;
 
             token_buffer.want(TokenKind::CurlyBegin)?;
 
             Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
-                list.push(Assignment::parse_token_loose(token_buffer)?);
+                let assignment = Assignment::parse_token_loose(token_buffer)?;
+
+                let name = assignment.path.list.first().unwrap();
+                let name = {
+                    if let PathKind::Identifier(identifier) = name {
+                        identifier.text.clone()
+                    } else {
+                        panic!("structure assignment: path is not an identifier")
+                    }
+                };
+
+                list.insert(name, assignment);
                 Ok(())
             })?;
 
@@ -1174,15 +1225,15 @@ impl StructureD {
 #[derive(Debug, Clone)]
 pub struct Structure {
     pub name: Identifier,
-    pub variable: HashMap<String, Variable>,
-    pub function: HashMap<String, Function>,
+    pub variable: BTreeMap<String, Variable>,
+    pub function: BTreeMap<String, Function>,
 }
 
 impl Structure {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Structure, |token_buffer| {
-            let mut variable = HashMap::new();
-            let mut function = HashMap::new();
+            let mut variable = BTreeMap::new();
+            let mut function = BTreeMap::new();
 
             token_buffer.want(TokenKind::Structure)?;
 
@@ -1311,54 +1362,149 @@ impl Path {
     }
 
     pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
+        let mut active = None;
+        let mut result = ExpressionKind::Null;
+
         for path in &self.list {
-            match path {
-                PathKind::Identifier(identifier) => {
-                    if let Some(value) = scope.get_declaration(identifier.clone()) {
-                        match value {
-                            Declaration::Definition(definition) => Variable::type_check(
-                                &definition.span,
-                                &definition.kind.clone().unwrap(),
-                                scope,
-                            )?,
-                            _ => todo!(),
+            if let Some(d_active) = &active {
+                match d_active {
+                    Declaration::Structure(structure) => match path {
+                        PathKind::Identifier(identifier) => {
+                            let field = structure.variable.get(&identifier.text).unwrap();
+
+                            let kind =
+                                Variable::type_check(&field.span, &field.kind.clone(), scope)?;
+
+                            match kind {
+                                ExpressionKind::Structure(structure) => {
+                                    active = Some(
+                                        scope.get_declaration(structure.clone()).unwrap().clone(),
+                                    );
+                                    result = ExpressionKind::Structure(structure);
+                                }
+                                x => {
+                                    result = x;
+                                }
+                            }
                         }
-                    } else {
-                        panic!("unknown symbol: {}", identifier.text);
-                    }
+                        _ => panic!("analyze: invalid path: {path:#?}"),
+                    },
+                    x => panic!("analyze: invalid active: {x:#?}"),
                 }
-                PathKind::Invocation(invocation) => invocation.analyze(scope)?,
-                _ => todo!(),
-            };
+            } else {
+                match path {
+                    PathKind::Identifier(identifier) => {
+                        if let Some(value) = scope.get_declaration(identifier.clone()) {
+                            match value {
+                                Declaration::Definition(definition) => {
+                                    // TO-DO this will crash without explicit typing.
+                                    let kind = Variable::type_check(
+                                        &definition.span,
+                                        &definition.kind.clone().unwrap(),
+                                        scope,
+                                    )?;
+
+                                    match kind {
+                                        ExpressionKind::Structure(structure) => {
+                                            active = Some(
+                                                scope
+                                                    .get_declaration(structure.clone())
+                                                    .unwrap()
+                                                    .clone(),
+                                            );
+                                            result = ExpressionKind::Structure(structure);
+                                        }
+                                        x => {
+                                            result = x;
+                                        }
+                                    }
+                                }
+                                _ => todo!(),
+                            }
+                        } else {
+                            panic!("analyze: unknown symbol: {}", identifier.text);
+                        }
+                    }
+                    PathKind::Invocation(invocation) => result = invocation.analyze(scope)?,
+                    _ => todo!(),
+                };
+            }
         }
 
-        Ok(ExpressionKind::Null)
+        Ok(result)
     }
-}
 
-/*
-#[derive(Debug, Clone)]
-pub struct Use {
-    pub path: Path,
-}
+    pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
+        let mut active = None;
 
-impl Use {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.parse(ErrorHint::Use, |token_buffer| {
-            let mut path = Path::default();
+        for path in &self.list {
+            if let Some(d_active) = &active {
+                match d_active {
+                    Declaration::Structure(structure) => match path {
+                        PathKind::Identifier(identifier) => {
+                            function.push(Instruction::LoadField(identifier.text.to_string()));
 
-            while let Some(token) = token_buffer.peek() {
-                if token.class.kind() == TokenKind::String {
-                    path.push(token_buffer.want_identifier()?);
-                } else if token.class.kind() == TokenKind::Dot {
-                    token_buffer.want(TokenKind::Dot)?;
-                } else {
-                    break;
+                            let field = structure.variable.get(&identifier.text).unwrap();
+
+                            let kind =
+                                Variable::type_check(&field.span, &field.kind.clone(), scope)?;
+
+                            if let ExpressionKind::Structure(structure) = kind {
+                                active =
+                                    Some(scope.get_declaration(structure.clone()).unwrap().clone());
+                            }
+                        }
+                        _ => panic!("compile: invalid path: {path:#?}"),
+                    },
+                    x => panic!("compile: invalid active: {x:#?}"),
                 }
-            }
+            } else {
+                match path {
+                    PathKind::Identifier(identifier) => {
+                        function.push(Instruction::Load(identifier.text.to_string()));
 
-            Ok(Self { path })
-        })
+                        if let Some(value) = scope.get_declaration(identifier.clone()) {
+                            match value {
+                                Declaration::Definition(definition) => {
+                                    let kind = Variable::type_check(
+                                        &definition.span,
+                                        &definition.kind.clone().unwrap(),
+                                        scope,
+                                    )?;
+
+                                    if let ExpressionKind::Structure(structure) = kind {
+                                        active = Some(
+                                            scope
+                                                .get_declaration(structure.clone())
+                                                .unwrap()
+                                                .clone(),
+                                        );
+                                    }
+                                }
+                                _ => todo!(),
+                            }
+                        } else {
+                            println!("compile: {:#?}", scope.symbol);
+                            panic!("compile: unknown symbol: {}", identifier.text);
+                        }
+                    }
+                    PathKind::Invocation(invocation) => {
+                        for expression in invocation.list.iter().rev() {
+                            expression.compile(scope, function)?;
+                        }
+
+                        function.push(Instruction::Call(
+                            invocation.name.text.to_string(),
+                            invocation.list.len(),
+                        ));
+
+                        //active = invocation.analyze(scope)?;
+                    }
+                    _ => todo!(),
+                };
+            }
+        }
+
+        Ok(())
     }
 }
-*/

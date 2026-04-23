@@ -15,6 +15,14 @@ name = "alicia-binary"
 version = "0.1.0"
 dependencies = [
  "alicia",
+ "thiserror",
+]
+
+[[package]]
+name = "alicia-example"
+version = "0.1.0"
+dependencies = [
+ "alicia",
 ]
 
 [[package]]

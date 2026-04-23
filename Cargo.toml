@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["source/alicia", "source/alicia-binary"]
+members = ["source/alicia", "source/alicia-binary", "source/alicia-example"]
 
 [profile.release]
 opt-level     = 3

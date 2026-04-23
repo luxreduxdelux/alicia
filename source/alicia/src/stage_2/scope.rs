@@ -26,6 +26,22 @@ pub struct FunctionNative {
     pub leave: ExpressionKind,
 }
 
+impl FunctionNative {
+    pub fn new(
+        name: String,
+        call: fn(Argument),
+        enter: NativeArgument,
+        leave: ExpressionKind,
+    ) -> Self {
+        Self {
+            name,
+            call,
+            enter,
+            leave,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Declaration {
     Function(Function),

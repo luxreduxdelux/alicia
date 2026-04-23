@@ -1,40 +1,132 @@
-use alicia::helper::error::Error;
-use alicia::stage_1::{buffer::TokenBuffer, helper::Source};
-use alicia::stage_2::scope::*;
-use alicia::stage_3::analysis::*;
-use alicia::stage_4::machine::*;
+use alicia::prelude::*;
+use thiserror::Error;
 
 //================================================================
 
-fn run() -> Result<(), Error> {
-    let mut scope = Scope::new(None);
-    scope.parse_buffer(TokenBuffer::new(Source::new_file("src/test.alicia")?)?)?;
-    Analysis::analyze_tree(&mut scope)?;
-    let mut machine = Machine::new(&scope)?;
+enum Command {
+    Help,
+    Run(Run),
+}
 
-    let main = machine.function.get("main").unwrap().clone();
+impl Command {
+    fn parse() -> Result<Self, CommandError> {
+        let mut path = None;
+        let mut main = None;
+        let mut list = std::env::args();
+        list.next();
 
-    if let FunctionKind::Function(function) = main {
-        function.execute(
-            &mut machine,
-            vec![
-                Value::String("foo".to_string()),
-                Value::Integer(1),
-                Value::Decimal(1.5),
-                Value::Boolean(true),
-            ],
-        )
+        while let Some(argument) = list.next() {
+            match argument.as_str() {
+                "--help" => return Ok(Self::Help),
+                "--path" => {
+                    if let Some(value) = list.next() {
+                        path = Some(value);
+                    } else {
+                        return Err(CommandError::MissingArgument(
+                            "{path}".to_string(),
+                            "--path".to_string(),
+                        ));
+                    }
+                }
+                "--main" => {
+                    if let Some(value) = list.next() {
+                        main = Some(value);
+                    } else {
+                        return Err(CommandError::MissingArgument(
+                            "{path}".to_string(),
+                            "--path".to_string(),
+                        ));
+                    }
+                }
+                x => {
+                    if x.starts_with("--") {
+                        return Err(CommandError::UnknownArgument(x.to_string()));
+                    }
+
+                    path = Some(x.to_string());
+                }
+            }
+        }
+
+        Ok(Self::Run(Run { path, main }))
     }
+}
 
-    Ok(())
+struct Run {
+    path: Option<String>,
+    main: Option<String>,
+}
+
+#[derive(Error, Debug)]
+enum CommandError {
+    #[error("error: unknown argument \"{0}\".")]
+    UnknownArgument(String),
+    #[error("error: missing argument \"{0}\" for command \"{1}\".")]
+    MissingArgument(String, String),
+    #[error("error: missing main function \"{0}\" in source file \"{1}\"")]
+    MissingFunction(String, String),
+    #[error("error: invalid main function \"{0}\" in source file \"{1}\"")]
+    InvalidFunction(String, String),
+    #[error("error: {0}")]
+    AliciaError(Error),
+}
+
+impl From<Error> for CommandError {
+    fn from(value: Error) -> Self {
+        Self::AliciaError(value)
+    }
+}
+
+//================================================================
+
+fn alicia_run(path: &str, main: &str) -> Result<(), CommandError> {
+    let instance = Builder::default().with_file(path.to_string())?;
+    let mut instance = instance.build()?;
+
+    if let Some(function) = instance.machine.function.get(main).cloned() {
+        if let FunctionKind::Function(function) = function {
+            function.execute(&mut instance.machine, vec![]);
+            Ok(())
+        } else {
+            Err(CommandError::InvalidFunction(
+                main.to_string(),
+                path.to_string(),
+            ))
+        }
+    } else {
+        Err(CommandError::MissingFunction(
+            main.to_string(),
+            path.to_string(),
+        ))
+    }
 }
 
 fn main() {
-    unsafe {
-        std::env::set_var("RUST_BACKTRACE", "1");
-    }
+    let command = Command::parse();
 
-    if let Err(error) = run() {
-        println!("{error}");
+    match command {
+        Ok(command) => match command {
+            Command::Help => {
+                println!("Alicia 1.0.0");
+                println!("--help: Show this help message.");
+                println!("--path {{path}}: Load a given source file.");
+                println!("--main {{name}}: Load a given \"main\" function name.");
+            }
+            Command::Run(run) => {
+                let path = run.path.unwrap_or("src/test.alicia".to_string());
+                let main = run.main.unwrap_or("main".to_string());
+
+                unsafe {
+                    std::env::set_var("RUST_BACKTRACE", "1");
+                }
+
+                if let Err(error) = alicia_run(&path, &main) {
+                    println!("{error}");
+                }
+            }
+        },
+        Err(error) => {
+            eprintln!("{error}");
+        }
     }
 }
