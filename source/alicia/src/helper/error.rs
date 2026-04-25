@@ -278,6 +278,8 @@ pub enum ErrorKind {
     InvalidInvocation(Identifier),
     #[error("\"{0}\" is not a valid variable to assign.")]
     InvalidAssignment(Identifier),
+    #[error("not every path will return a value.")]
+    IncompleteReturn,
     #[error("cannot \"skip\" outside of an iteration block.")]
     InvalidSkip,
     #[error("cannot \"exit\" outside of an iteration block.")]

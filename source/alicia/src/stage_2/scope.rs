@@ -4,6 +4,7 @@ use crate::stage_1::helper::*;
 use crate::stage_1::token::*;
 use crate::stage_2::construct::*;
 use crate::stage_4::machine::Argument;
+use crate::stage_4::machine::Value;
 use std::fmt::Debug;
 
 //================================================================
@@ -21,7 +22,7 @@ pub enum NativeArgument {
 #[derive(Debug, Clone)]
 pub struct FunctionNative {
     pub name: String,
-    pub call: fn(Argument),
+    pub call: fn(Argument) -> Option<Value>,
     pub enter: NativeArgument,
     pub leave: ExpressionKind,
 }
@@ -29,7 +30,7 @@ pub struct FunctionNative {
 impl FunctionNative {
     pub fn new(
         name: String,
-        call: fn(Argument),
+        call: fn(Argument) -> Option<Value>,
         enter: NativeArgument,
         leave: ExpressionKind,
     ) -> Self {

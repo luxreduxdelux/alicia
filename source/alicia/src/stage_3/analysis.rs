@@ -33,7 +33,7 @@ impl Analysis {
                         let split: Vec<&str> = identifier.split(".").collect();
 
                         if split.len() == 1 {
-                            if let Some(value) = argument.local.get(&identifier) {
+                            if let Some(value) = argument.memory.get(&identifier) {
                                 result.push_str(&value.to_string());
                             } else {
                                 panic!("No variable by the name of {identifier}.")
@@ -57,7 +57,7 @@ impl Analysis {
                                         x => current = Some(x.clone()),
                                     }
                                 } else {
-                                    if let Some(value) = argument.local.get(access) {
+                                    if let Some(value) = argument.memory.get(access) {
                                         current = Some(value.clone());
                                     } else {
                                         panic!("No variable by the name of {access}.")
@@ -78,8 +78,14 @@ impl Analysis {
         Ok(result)
     }
 
-    fn print(argument: Argument) {
+    fn test(_: Argument) -> Option<Value> {
+        Some(Value::Boolean(true))
+    }
+
+    fn print(argument: Argument) -> Option<Value> {
         println!("{}", Self::format_internal(argument).unwrap());
+
+        None
     }
 
     #[rustfmt::skip]
@@ -89,6 +95,12 @@ impl Analysis {
             call: Self::print,
             enter: NativeArgument::Variable,
             leave: ExpressionKind::Null,
+        }));
+        scope.symbol.insert("test".to_string(), Declaration::FunctionNative(FunctionNative {
+            name: "test".to_string(),
+            call: Self::test,
+            enter: NativeArgument::Variable,
+            leave: ExpressionKind::Boolean,
         }));
 
         let scope_borrow = scope as *mut Scope;

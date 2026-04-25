@@ -17,30 +17,53 @@ pub enum FunctionKind {
     FunctionNative(FunctionNative),
 }
 
+#[derive(Debug, Clone, Default)]
+struct StructureMap {
+    function: HashMap<String, Function>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct EnumerateMap {
+    function: HashMap<String, Function>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Machine {
     pub function: HashMap<String, FunctionKind>,
-    table: HashMap<String, Value>,
-    stack: Vec<Value>,
+    structure: HashMap<String, StructureMap>,
+    //pub enumerate: HashMap<String, EnumerateMap>,
 }
 
 impl Machine {
     pub fn new(scope: &Scope) -> Result<Self, Error> {
         let mut function = HashMap::default();
-        let table = HashMap::default();
-        let stack = Vec::default();
+        let mut structure = HashMap::default();
+        //let mut enumerate = HashMap::default();
 
         for value in scope.symbol.clone().values() {
             match value {
                 Declaration::Function(f) => {
                     let compile = f.compile(scope)?;
 
+                    for (i, c) in compile.buffer.iter().enumerate() {
+                        println!("{i}: {c:#?}");
+                    }
+
                     function.insert(f.name.text.clone(), FunctionKind::Function(compile));
                 }
                 Declaration::FunctionNative(f) => {
-                    //println!("function native: {f:#?}");
-
                     function.insert(f.name.clone(), FunctionKind::FunctionNative(f.clone()));
+                }
+                Declaration::Structure(s) => {
+                    let mut map = StructureMap::default();
+
+                    for (name, function) in &s.function {
+                        let compile = function.compile(scope)?;
+
+                        map.function.insert(name.to_string(), compile);
+                    }
+
+                    structure.insert(s.name.text.clone(), map);
                 }
                 _ => {}
             }
@@ -48,8 +71,8 @@ impl Machine {
 
         Ok(Self {
             function,
-            table,
-            stack,
+            structure,
+            //enumerate,
         })
     }
 
@@ -61,7 +84,23 @@ impl Machine {
         }
     }
 
-    /*
+    fn get_structure(&self, name: &str) -> StructureMap {
+        if let Some(value) = self.structure.get(name) {
+            value.clone()
+        } else {
+            panic!("Machine::get_structure(): No structure by the name of \"{name}\".")
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct Frame {
+    table: HashMap<String, Value>,
+    stack: Vec<Value>,
+    cursor: usize,
+}
+
+impl Frame {
     fn save(&mut self, name: String, value: Value) {
         self.table.insert(name, value);
     }
@@ -73,21 +112,24 @@ impl Machine {
             panic!("Machine::load(): No value by the name of \"{name}\".")
         }
     }
-    */
+
+    fn hide(&mut self, name: &str) {
+        self.table.remove(name);
+    }
 
     fn push(&mut self, value: Value) {
         self.stack.push(value)
     }
 
-    pub fn pop(&mut self) -> Value {
+    fn pop(&mut self) -> Value {
         if let Some(pop) = self.stack.pop() {
             pop
         } else {
-            panic!("Machine::pop(): No element on the stack.")
+            panic!("Machine::pop(): No element on the stack. \n{:#?}", self)
         }
     }
 
-    pub fn pop_string(&mut self) -> String {
+    fn pop_string(&mut self) -> String {
         let pop = self.pop();
 
         if let Value::String(value) = pop {
@@ -190,7 +232,7 @@ impl Display for Value {
                 }
 
                 formatter.write_str("}")
-            }
+            },
         }
     }
 }
@@ -204,12 +246,13 @@ impl Value {
         }
     }
 
+    #[rustfmt::skip]
     pub fn kind(&self) -> ValueKind {
         match self {
-            Self::String(_) => ValueKind::String,
-            Self::Integer(_) => ValueKind::Integer,
-            Self::Decimal(_) => ValueKind::Decimal,
-            Self::Boolean(_) => ValueKind::Boolean,
+            Self::String(_)    => ValueKind::String,
+            Self::Integer(_)   => ValueKind::Integer,
+            Self::Decimal(_)   => ValueKind::Decimal,
+            Self::Boolean(_)   => ValueKind::Boolean,
             Self::Structure(_) => ValueKind::Structure,
         }
     }
@@ -223,6 +266,7 @@ pub enum ValueKind {
     Boolean,
     Structure,
     Enumerate,
+    Reference,
     Array,
     Table,
 }
@@ -237,6 +281,7 @@ impl Display for ValueKind {
             Self::Boolean   => formatter.write_str("Boolean"),
             Self::Structure => formatter.write_str("Structure"),
             Self::Enumerate => formatter.write_str("Enumerate"),
+            Self::Reference => formatter.write_str("Reference"),
             Self::Array     => formatter.write_str("Array"),
             Self::Table     => formatter.write_str("Table"),
         }
@@ -245,6 +290,7 @@ impl Display for ValueKind {
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
+    Null,
     Add,
     Subtract,
     Multiply,
@@ -258,18 +304,30 @@ pub enum Instruction {
     GTE,
     LTE,
     EqualNot,
+    Jump(usize),
+    Branch(usize),
+    Return(bool),
     PushStructure(StructureD),
     Push(Value),
     Save(String),
+    SaveField(String),
     Load(String),
     LoadField(String),
+    Hide(String),
     //LoadIndex(usize),
-    Call(String, usize),
+    Call(FunctionCall, usize),
+}
+
+#[derive(Debug, Clone)]
+pub enum FunctionCall {
+    Function(String),
+    FunctionStructure(String, String),
+    FunctionEnumerate(String, String),
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Function {
-    buffer: Vec<Instruction>,
+    pub buffer: Vec<Instruction>,
     enter: Vec<String>,
 }
 
@@ -278,80 +336,92 @@ impl Function {
         self.buffer.push(instruction);
     }
 
+    pub fn insert(&mut self, instruction: Instruction, index: usize) {
+        self.buffer.insert(index, instruction);
+    }
+
+    pub fn change(&mut self, instruction: Instruction, index: usize) {
+        self.buffer[index] = instruction;
+    }
+
+    pub fn cursor(&self) -> usize {
+        self.buffer.len()
+    }
+
     pub fn push_parameter(&mut self, parameter: String) {
         self.enter.push(parameter);
     }
 
-    pub fn execute(&self, machine: &mut Machine, argument: Vec<Value>) {
-        let mut cursor = 0;
-        let mut memory: HashMap<String, Value> = HashMap::default();
+    pub fn execute(&self, machine: &mut Machine, argument: Vec<Value>) -> Option<Value> {
+        let mut frame = Frame::default();
 
         if argument.len() != self.enter.len() {
             panic!("incorrect argument count");
         }
 
         for (i, a) in argument.iter().enumerate() {
-            memory.insert(self.enter[i].clone(), a.clone());
+            frame.save(self.enter[i].clone(), a.clone());
         }
 
-        while let Some(instruction) = self.buffer.get(cursor) {
+        while let Some(instruction) = self.buffer.get(frame.cursor) {
             match instruction {
+                Instruction::Null => {}
                 Instruction::Add => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Integer(b + a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Integer(b + a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Decimal(b + a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Decimal(b + a));
                         }
                         _ => panic!("Add: Invalid value {a:?}"),
                     }
                 }
                 Instruction::Subtract => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Integer(b - a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Integer(b - a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Decimal(b - a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Decimal(b - a));
                         }
                         _ => panic!("Subtract: Invalid value {a:?}"),
                     }
                 }
                 Instruction::Multiply => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Integer(b * a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Integer(b * a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Decimal(b * a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Decimal(b * a));
                         }
                         _ => panic!("Multiply: Invalid value {a:?}"),
                     }
                 }
                 Instruction::Divide => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Integer(b / a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Integer(b / a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Decimal(b / a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Decimal(b / a));
                         }
                         _ => panic!("Divide: Invalid value {a:?}"),
                     }
@@ -360,188 +430,231 @@ impl Function {
                     let mut s = Structure::new(structure.name.text.clone());
 
                     for variable in &structure.variable {
-                        s.data.insert(variable.0.to_string(), machine.pop());
+                        s.data.insert(variable.0.to_string(), frame.pop());
                     }
 
-                    machine.push(Value::Structure(s));
+                    frame.push(Value::Structure(s));
                 }
                 Instruction::Push(value) => {
-                    machine.push(value.clone());
+                    frame.push(value.clone());
                 }
                 Instruction::Save(name) => {
-                    let value = machine.pop();
-                    //machine.save(name.to_string(), value);
-                    memory.insert(name.to_string(), value);
+                    let value = frame.pop();
+                    frame.save(name.to_string(), value);
+                }
+                Instruction::SaveField(name) => {
+                    let mut structure = frame.pop_structure();
+                    let value = frame.pop();
+                    structure.data.insert(name.to_string(), value);
+                    frame.push(Value::Structure(structure));
                 }
                 Instruction::Load(name) => {
-                    let value = memory
-                        .get(name)
-                        .cloned()
-                        .expect(&format!("No variable by the name of {name}."));
-                    //let value = machine.load(name);
-                    machine.push(value);
+                    let value = frame.load(name);
+                    frame.push(value);
                 }
                 Instruction::LoadField(name) => {
-                    let value = machine.pop_structure();
+                    let value = frame.pop_structure();
                     let value = value.data.get(name).unwrap();
-                    machine.push(value.clone());
+                    frame.push(value.clone());
                 }
-                Instruction::Call(name, arity) => {
-                    let function = machine.get_function(name);
-                    let argument = Argument::new(machine, memory.clone(), *arity);
+                Instruction::Hide(name) => {
+                    frame.hide(name);
+                }
+                Instruction::Call(call, arity) => match call {
+                    FunctionCall::Function(name) => {
+                        let function = machine.get_function(name);
+                        let argument = Argument::new(&mut frame, *arity);
 
-                    match function {
-                        FunctionKind::Function(function) => {
-                            function.execute(machine, argument.buffer);
-                        }
-                        FunctionKind::FunctionNative(function_native) => {
-                            (function_native.call)(argument);
+                        let value = match function {
+                            FunctionKind::Function(function) => {
+                                function.execute(machine, argument.buffer)
+                            }
+                            FunctionKind::FunctionNative(function_native) => {
+                                (function_native.call)(argument)
+                            }
+                        };
+
+                        if let Some(value) = value {
+                            frame.push(value);
                         }
                     }
-                }
+                    FunctionCall::FunctionStructure(structure, name) => {
+                        let structure = machine.get_structure(structure);
+                        let function = structure.function.get(name).unwrap();
+                        let argument = Argument::new(&mut frame, *arity);
+
+                        let value = function.execute(machine, argument.buffer);
+
+                        if let Some(value) = value {
+                            frame.push(value);
+                        }
+                    }
+                    FunctionCall::FunctionEnumerate(enumerate, name) => todo!(),
+                },
                 Instruction::Not => {
-                    let a = machine.pop_boolean();
-                    machine.push(Value::Boolean(!a));
+                    let a = frame.pop_boolean();
+                    frame.push(Value::Boolean(!a));
                 }
                 Instruction::And => {
-                    let a = machine.pop_boolean();
-                    let b = machine.pop_boolean();
-                    machine.push(Value::Boolean(b && a));
+                    let a = frame.pop_boolean();
+                    let b = frame.pop_boolean();
+                    frame.push(Value::Boolean(b && a));
                 }
                 Instruction::Or => {
-                    let a = machine.pop_boolean();
-                    let b = machine.pop_boolean();
-                    machine.push(Value::Boolean(b || a));
+                    let a = frame.pop_boolean();
+                    let b = frame.pop_boolean();
+                    frame.push(Value::Boolean(b || a));
                 }
                 Instruction::GT => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Boolean(b > a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Boolean(b > a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Boolean(b > a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Boolean(b > a));
                         }
                         _ => panic!("GT: Invalid value {a:?}"),
                     }
                 }
                 Instruction::LT => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Boolean(b < a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Boolean(b < a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Boolean(b < a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Boolean(b < a));
                         }
                         _ => panic!("LT: Invalid value {a:?}"),
                     }
                 }
                 Instruction::Equal => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::String(a) => {
-                            let b = machine.pop_string();
-                            machine.push(Value::Boolean(b == a));
+                            let b = frame.pop_string();
+                            frame.push(Value::Boolean(b == a));
                         }
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Boolean(b == a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Boolean(b == a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Boolean(b == a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Boolean(b == a));
                         }
                         Value::Boolean(a) => {
-                            let b = machine.pop_boolean();
-                            machine.push(Value::Boolean(b == a));
+                            let b = frame.pop_boolean();
+                            frame.push(Value::Boolean(b == a));
                         }
                         _ => todo!(),
                     }
                 }
                 Instruction::GTE => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Boolean(b >= a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Boolean(b >= a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Boolean(b >= a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Boolean(b >= a));
                         }
                         _ => panic!("GTE: Invalid value {a:?}"),
                     }
                 }
                 Instruction::LTE => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Boolean(b <= a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Boolean(b <= a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Boolean(b <= a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Boolean(b <= a));
                         }
                         _ => panic!("LTE: Invalid value {a:?}"),
                     }
                 }
                 Instruction::EqualNot => {
-                    let a = machine.pop();
+                    let a = frame.pop();
 
                     match a {
                         Value::String(a) => {
-                            let b = machine.pop_string();
-                            machine.push(Value::Boolean(b != a));
+                            let b = frame.pop_string();
+                            frame.push(Value::Boolean(b != a));
                         }
                         Value::Integer(a) => {
-                            let b = machine.pop_integer();
-                            machine.push(Value::Boolean(b != a));
+                            let b = frame.pop_integer();
+                            frame.push(Value::Boolean(b != a));
                         }
                         Value::Decimal(a) => {
-                            let b = machine.pop_decimal();
-                            machine.push(Value::Boolean(b != a));
+                            let b = frame.pop_decimal();
+                            frame.push(Value::Boolean(b != a));
                         }
                         Value::Boolean(a) => {
-                            let b = machine.pop_boolean();
-                            machine.push(Value::Boolean(b != a));
+                            let b = frame.pop_boolean();
+                            frame.push(Value::Boolean(b != a));
                         }
                         _ => todo!(),
                     }
                 }
+                Instruction::Jump(j_cursor) => {
+                    frame.cursor = *j_cursor;
+                    continue;
+                }
+                Instruction::Branch(b_cursor) => {
+                    let value = frame.pop_boolean();
+
+                    if !value {
+                        frame.cursor = *b_cursor;
+                    }
+                }
+                Instruction::Return(value) => {
+                    if *value {
+                        let value = frame.pop();
+                        return Some(value);
+                    } else {
+                        return None;
+                    }
+                }
             }
 
-            cursor += 1;
+            frame.cursor += 1;
         }
+
+        None
     }
 }
 
 pub struct Argument {
-    pub local: HashMap<String, Value>,
+    pub memory: HashMap<String, Value>,
     pub buffer: Vec<Value>,
     cursor: usize,
 }
 
 impl Argument {
-    fn new(machine: &mut Machine, local: HashMap<String, Value>, arity: usize) -> Self {
+    fn new(frame: &mut Frame, arity: usize) -> Self {
         let mut buffer = Vec::new();
 
         for _ in 0..arity {
-            buffer.push(machine.pop());
+            buffer.push(frame.pop());
         }
 
         Self {
-            local,
+            memory: frame.table.clone(),
             buffer,
             cursor: usize::default(),
         }
