@@ -95,26 +95,26 @@ impl Machine {
 
 #[derive(Debug, Clone, Default)]
 struct Frame {
-    table: HashMap<String, Value>,
+    table: HashMap<usize, Value>,
     stack: Vec<Value>,
     cursor: usize,
 }
 
 impl Frame {
-    fn save(&mut self, name: String, value: Value) {
-        self.table.insert(name, value);
+    fn save(&mut self, index: usize, value: Value) {
+        self.table.insert(index, value);
     }
 
-    fn load(&mut self, name: &str) -> Value {
-        if let Some(value) = self.table.get(name) {
+    fn load(&mut self, index: &usize) -> Value {
+        if let Some(value) = self.table.get(index) {
             value.clone()
         } else {
-            panic!("Machine::load(): No value by the name of \"{name}\".")
+            panic!("Machine::load(): No value with an index of \"{index}\".")
         }
     }
 
-    fn hide(&mut self, name: &str) {
-        self.table.remove(name);
+    fn hide(&mut self, index: &usize) {
+        self.table.remove(index);
     }
 
     fn push(&mut self, value: Value) {
@@ -309,11 +309,11 @@ pub enum Instruction {
     Return(bool),
     PushStructure(StructureD),
     Push(Value),
-    Save(String),
+    Save(usize),
     SaveField(String),
-    Load(String),
+    Load(usize),
     LoadField(String),
-    Hide(String),
+    Hide(usize),
     //LoadIndex(usize),
     Call(FunctionCall, usize),
 }
@@ -360,7 +360,7 @@ impl Function {
         }
 
         for (i, a) in argument.iter().enumerate() {
-            frame.save(self.enter[i].clone(), a.clone());
+            frame.save(i, a.clone());
         }
 
         while let Some(instruction) = self.buffer.get(frame.cursor) {
@@ -438,9 +438,9 @@ impl Function {
                 Instruction::Push(value) => {
                     frame.push(value.clone());
                 }
-                Instruction::Save(name) => {
+                Instruction::Save(index) => {
                     let value = frame.pop();
-                    frame.save(name.to_string(), value);
+                    frame.save(*index, value);
                 }
                 Instruction::SaveField(name) => {
                     let mut structure = frame.pop_structure();
@@ -448,8 +448,8 @@ impl Function {
                     structure.data.insert(name.to_string(), value);
                     frame.push(Value::Structure(structure));
                 }
-                Instruction::Load(name) => {
-                    let value = frame.load(name);
+                Instruction::Load(index) => {
+                    let value = frame.load(index);
                     frame.push(value);
                 }
                 Instruction::LoadField(name) => {
@@ -457,8 +457,8 @@ impl Function {
                     let value = value.data.get(name).unwrap();
                     frame.push(value.clone());
                 }
-                Instruction::Hide(name) => {
-                    frame.hide(name);
+                Instruction::Hide(index) => {
+                    frame.hide(index);
                 }
                 Instruction::Call(call, arity) => match call {
                     FunctionCall::Function(name) => {
@@ -640,7 +640,7 @@ impl Function {
 }
 
 pub struct Argument {
-    pub memory: HashMap<String, Value>,
+    pub memory: HashMap<usize, Value>,
     pub buffer: Vec<Value>,
     cursor: usize,
 }

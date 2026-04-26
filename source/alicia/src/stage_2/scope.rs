@@ -56,15 +56,23 @@ pub enum Declaration {
 pub struct Scope {
     pub source: Vec<Source>,
     pub symbol: HashMap<String, Declaration>,
-    pub parent: Option<Box<*mut Self>>,
+    pub parent: Option<Box<Self>>,
+    pub slot: usize,
 }
 
 impl Scope {
-    pub fn new(parent: Option<Box<*mut Self>>) -> Self {
+    pub fn new(parent: Option<Box<Self>>) -> Self {
+        let slot = if let Some(parent) = &parent {
+            parent.slot
+        } else {
+            usize::default()
+        };
+
         Self {
             source: Vec::default(),
             symbol: HashMap::default(),
             parent,
+            slot,
         }
     }
 
@@ -113,10 +121,7 @@ impl Scope {
         println!("scope: {:#?}", self.symbol);
 
         if let Some(parent) = &self.parent {
-            let scope = **parent;
-            unsafe {
-                scope.as_ref().expect("REASON").print();
-            }
+            parent.print();
         }
     }
 
@@ -124,19 +129,7 @@ impl Scope {
         if let Some(declaration) = self.symbol.get(&name.text) {
             Some(declaration)
         } else if let Some(parent) = &self.parent {
-            let scope = **parent;
-            unsafe { scope.as_mut()?.get_declaration(name) }
-        } else {
-            None
-        }
-    }
-
-    pub fn get_declaration_mutable(&mut self, name: Identifier) -> Option<&mut Declaration> {
-        if let Some(declaration) = self.symbol.get_mut(&name.text) {
-            Some(declaration)
-        } else if let Some(parent) = &self.parent {
-            let scope = **parent;
-            unsafe { scope.as_mut()?.get_declaration_mutable(name) }
+            parent.get_declaration(name)
         } else {
             None
         }
@@ -146,22 +139,12 @@ impl Scope {
         self.symbol.insert(name.to_string(), value);
     }
 
-    pub fn set_assignment(&mut self, name: Identifier, value: Declaration) {
-        if self.symbol.contains_key(&name.text) {
-            self.symbol.insert(name.to_string(), value);
-        } else if let Some(parent) = &self.parent {
-            let scope = **parent;
-            unsafe { scope.as_mut().unwrap().set_assignment(name, value) }
-        }
+    pub fn get_slot(&self) -> usize {
+        self.slot
     }
 
-    pub fn get_root_mutable(&mut self) -> &mut Scope {
-        let mut scope = self;
-
-        while let Some(parent) = &scope.parent {
-            scope = unsafe { &mut ***parent };
-        }
-
-        scope
+    pub fn get_and_add_slot(&mut self) -> usize {
+        self.slot += 1;
+        self.slot - 1
     }
 }

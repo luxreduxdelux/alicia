@@ -188,7 +188,7 @@ impl Condition {
             child.analyze(scope)?;
         }
 
-        self.block.analyze(scope, false)?;
+        self.block.analyze(scope, Vec::default(), false)?;
 
         Ok(())
     }
@@ -334,7 +334,7 @@ impl Iteration {
             };
         }
 
-        self.block.analyze(scope, true)?;
+        self.block.analyze(scope, Vec::default(), true)?;
 
         Ok(())
     }
@@ -747,6 +747,7 @@ pub struct Definition {
     pub kind_i: Option<Identifier>,
     pub kind_e: Option<ExpressionKind>,
     pub value: Expression,
+    pub index: Option<usize>,
 }
 
 impl Definition {
@@ -775,6 +776,7 @@ impl Definition {
                 kind_i,
                 kind_e: None,
                 value,
+                index: None,
             })
         })
     }
@@ -795,6 +797,7 @@ impl Definition {
         }
 
         self.kind_e = Some(source.clone());
+        self.index = Some(scope.get_and_add_slot());
 
         scope.set_declaration(self.name.clone(), Declaration::Definition(self.clone()));
 
@@ -803,7 +806,7 @@ impl Definition {
 
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
         self.value.compile(scope, function)?;
-        function.push(Instruction::Save(self.name.text.clone()));
+        function.push(Instruction::Save(self.index.unwrap()));
 
         Ok(())
     }
@@ -1118,8 +1121,31 @@ impl Block {
         })
     }
 
-    pub fn analyze(&mut self, scope: &mut Scope, iteration: bool) -> Result<(), Error> {
-        let mut scope_block = Scope::new(Some(Box::new(scope)));
+    pub fn analyze(
+        &mut self,
+        scope: &mut Scope,
+        argument: Vec<Variable>,
+        iteration: bool,
+    ) -> Result<(), Error> {
+        let mut scope_block = Scope::new(Some(Box::new(scope.clone())));
+
+        for variable in &argument {
+            let kind = variable.analyze(scope)?;
+            let index = scope.get_and_add_slot();
+
+            let definition = Definition {
+                span: variable.span.clone(),
+                name: variable.name.clone(),
+                kind_i: Some(variable.kind.clone()),
+                kind_e: Some(kind),
+                value: Expression::Value(ExpressionValue::Path(Path {
+                    list: vec![PathKind::Identifier(variable.name.clone())],
+                })),
+                index: Some(index),
+            };
+
+            scope.set_declaration(variable.name.clone(), Declaration::Definition(definition));
+        }
 
         for statement in &self.code {
             match statement {
@@ -1157,7 +1183,7 @@ impl Block {
                     iteration.analyze(&mut scope_block)?;
                 }
                 Statement::Block(block) => {
-                    block.analyze(&mut scope_block, false)?;
+                    block.analyze(&mut scope_block, Vec::default(), false)?;
                 }
                 Statement::Skip => {
                     if !iteration {
@@ -1211,9 +1237,10 @@ impl Block {
     }
 
     #[rustfmt::skip]
-    pub fn compile(&self, _: &Scope, function: &mut MFunction, root: bool, header: Option<usize>) -> Result<(), Error> {
+    pub fn compile(&self, scope: &Scope, function: &mut MFunction, root: bool, header: Option<usize>) -> Result<(), Error> {
         let block = self.scope.as_ref().unwrap();
-        let mut variable = Vec::new();
+        let mut variable_a = scope.get_slot();
+        let mut variable_b = scope.get_slot();
         let mut exit = Vec::new();
 
         for statement in &self.code {
@@ -1222,24 +1249,24 @@ impl Block {
                     definition.compile(block, function)?;
 
                     if !root {
-                        variable.push(definition.name.text.clone());
+                        variable_b += 1;
                     }
                 },
                 Statement::Assignment(assignment) => { assignment.compile(block, function)?; },
                 Statement::Expression(expression) => { expression.compile(block, function)?; },
                 Statement::Condition(condition)   => { condition.compile(block, function)?;  },
                 Statement::Iteration(iteration)   => { iteration.compile(block, function)?;  },
-                Statement::Block(b)               => b.compile(block, function, false, None)?,
+                Statement::Block(b)               => { b.compile(block, function, false, None)?; },
                 Statement::Skip                   => if let Some(header) = header {
-                    for v in &variable {
-                        function.push(Instruction::Hide(v.to_string()));
+                    for v in variable_a..variable_b {
+                        function.push(Instruction::Hide(v));
                     }
 
                     function.push(Instruction::Jump(header));
                 },
                 Statement::Exit                   => {
-                    for v in &variable {
-                        function.push(Instruction::Hide(v.to_string()));
+                    for v in variable_a..variable_b {
+                        function.push(Instruction::Hide(v));
                     }
 
                     exit.push(function.cursor());
@@ -1252,8 +1279,8 @@ impl Block {
         }
 
         if !root {
-            for v in &variable {
-                function.push(Instruction::Hide(v.to_string()));
+            for v in variable_a..variable_b {
+                function.push(Instruction::Hide(v));
             }
         }
 
@@ -1319,25 +1346,7 @@ impl Function {
     }
 
     pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
-        for variable in &self.enter {
-            let kind = variable.analyze(scope)?;
-
-            let definition = Definition {
-                span: variable.span.clone(),
-                name: variable.name.clone(),
-                kind_i: Some(variable.kind.clone()),
-                kind_e: Some(kind),
-                value: Expression::Value(ExpressionValue::Path(Path {
-                    list: vec![PathKind::Identifier(variable.name.clone())],
-                })),
-            };
-
-            // TO-DO incorrect, this is setting each parameter as a global value and not inside the scope!
-            // do this inside the scope.
-            scope.set_declaration(variable.name.clone(), Declaration::Definition(definition));
-        }
-
-        self.block.analyze(scope, false)?;
+        self.block.analyze(scope, self.enter.clone(), false)?;
 
         let flow = self.block.analyze_flow(scope, false)?;
         let target = if let Some(leave) = &self.leave {
@@ -1814,7 +1823,7 @@ impl Path {
                         if let Some(value) = scope.get_declaration(identifier.clone()) {
                             match value {
                                 Declaration::Definition(definition) => {
-                                    function.push(Instruction::Load(identifier.text.to_string()));
+                                    function.push(Instruction::Load(definition.index.unwrap()));
 
                                     let kind = definition.value.analyze(scope)?;
 

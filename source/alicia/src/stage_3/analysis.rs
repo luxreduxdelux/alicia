@@ -25,10 +25,13 @@ impl Analysis {
                         identifier.push(character);
                     }
 
-                    if identifier.is_empty() {
-                        if let Some(value) = argument.next() {
-                            result.push_str(&value.to_string());
-                        }
+                    //if identifier.is_empty() {
+                    if let Some(value) = argument.next() {
+                        result.push_str(&value.to_string());
+                    }
+
+                    // TO-DO unavailable until a look-up table is made between String -> stack slot..
+                    /*
                     } else {
                         let split: Vec<&str> = identifier.split(".").collect();
 
@@ -70,6 +73,7 @@ impl Analysis {
                             }
                         }
                     }
+                    */
                 }
                 _ => result.push(character),
             }
@@ -115,7 +119,10 @@ impl Analysis {
                 Declaration::Function(function)     => function.analyze(scope)?,
                 Declaration::Structure(structure)   => structure.analyze(scope)?,
                 //Declaration::Enumerate(enumerate) => enumerate.analyze(&scope)?,
-                Declaration::Definition(definition) => { definition.analyze(scope)?; },
+                Declaration::Definition(definition) => {
+                    // TO-DO use definition count instead of 0.
+                    definition.analyze(scope)?;
+                },
                 _ => {}
             }
         }
