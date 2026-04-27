@@ -93,7 +93,7 @@ impl Analysis {
     }
 
     #[rustfmt::skip]
-    pub fn analyze_tree(scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze_tree(mut scope: Scope) -> Result<Scope, Error> {
         scope.symbol.insert("print".to_string(), Declaration::FunctionNative(FunctionNative {
             name: "print".to_string(),
             call: Self::print,
@@ -107,26 +107,34 @@ impl Analysis {
             leave: ExpressionKind::Boolean,
         }));
 
-        let scope_borrow = scope as *mut Scope;
+        let mut scope_clone = scope.clone();
 
-        for value in scope.symbol.values_mut() {
-            let scope = unsafe { &mut (*scope_borrow) };
+        for (_, value) in scope.symbol.clone() {
 
             // TO-DO this is quite bad. I think in a future design we should make a difference
             // between pre-analyze declaration and post-analyze declaration rather than modify
             // everything in-place.
             match value {
-                Declaration::Function(function)     => function.analyze(scope)?,
-                Declaration::Structure(structure)   => structure.analyze(scope)?,
-                //Declaration::Enumerate(enumerate) => enumerate.analyze(&scope)?,
-                Declaration::Definition(definition) => {
-                    // TO-DO use definition count instead of 0.
-                    definition.analyze(scope)?;
+                Declaration::Function(mut function) => {
+                    function.analyze(&mut scope_clone)?;
+                    scope_clone.set_declaration(function.name.clone(), Declaration::Function(function));
+                },
+                Declaration::Structure(mut structure) => {
+                    structure.analyze(&mut scope_clone)?;
+                    scope_clone.set_declaration(structure.name.clone(), Declaration::Structure(structure));
+                },
+                Declaration::Enumerate(mut enumerate) => {
+                    enumerate.analyze(&mut scope_clone)?;
+                    scope_clone.set_declaration(enumerate.name.clone(), Declaration::Enumerate(enumerate));
+                },
+                Declaration::Definition(mut definition) => {
+                    definition.analyze(&mut scope_clone)?;
+                    scope_clone.set_declaration(definition.name.clone(), Declaration::Definition(definition));
                 },
                 _ => {}
             }
         }
 
-        Ok(())
+        Ok(scope_clone)
     }
 }

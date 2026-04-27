@@ -73,13 +73,14 @@ impl Statement {
         Ok(())
     }
 
+    #[rustfmt::skip]
     pub fn parse_token(token: Token, token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         match token.class {
-            TokenClass::Function => Ok(Self::Function(Function::parse_token(token_buffer)?)),
+            TokenClass::Function  => Ok(Self::Function(Function::parse_token(token_buffer, None)?)),
             TokenClass::Structure => Ok(Self::Structure(Structure::parse_token(token_buffer)?)),
             TokenClass::Enumerate => Ok(Self::Enumerate(Enumerate::parse_token(token_buffer)?)),
-            TokenClass::Let => Ok(Self::Definition(Definition::parse_token(token_buffer)?)),
-            TokenClass::If => Ok(Self::Condition(Condition::parse_token(
+            TokenClass::Let       => Ok(Self::Definition(Definition::parse_token(token_buffer)?)),
+            TokenClass::If        => Ok(Self::Condition(Condition::parse_token(
                 token_buffer,
                 false,
             )?)),
@@ -92,9 +93,9 @@ impl Statement {
                 token_buffer.want(TokenKind::Exit)?;
                 Ok(Self::Exit)
             }
-            TokenClass::Return => Ok(Self::Return(Return::parse_token(token_buffer)?)),
-            TokenClass::Identifier(_) => Self::parse_identifier(token_buffer),
-            TokenClass::CurlyBegin => Ok(Self::Block(Block::parse_token(token_buffer)?)),
+            TokenClass::Return        => Ok(Self::Return(Return::parse_token(token_buffer)?)),
+            TokenClass::Identifier(_) => Ok(Self::parse_identifier(token_buffer)?),
+            TokenClass::CurlyBegin    => Ok(Self::Block(Block::parse_token(token_buffer)?)),
             _ => Err(Error::new_info(
                 token_buffer.get_error_info(Some(token.clone())),
                 ErrorKind::UnknownToken(token),
@@ -405,6 +406,7 @@ pub enum ExpressionValue {
     Decimal(f64),
     Boolean(bool),
     Structure(StructureD),
+    Enumerate(EnumerateD),
     Array(ArrayD),
 }
 
@@ -432,6 +434,12 @@ impl ExpressionValue {
                         && token.class.kind() == TokenKind::CurlyBegin
                     {
                         return Ok(Self::Structure(StructureD::parse_token(token_buffer)?));
+                    }
+
+                    if let Some(token) = token_buffer.peek_ahead(3)
+                        && token.class.kind() == TokenKind::CurlyBegin
+                    {
+                        return Ok(Self::Enumerate(EnumerateD::parse_token(token_buffer)?));
                     }
 
                     Ok(Self::Path(Path::parse_token(token_buffer)?))
@@ -472,7 +480,7 @@ impl ExpressionValue {
             Self::Decimal(_)    => ExpressionKind::Decimal,
             Self::Boolean(_)    => ExpressionKind::Boolean,
             Self::Structure(x)  => ExpressionKind::Structure(x.name.clone()),
-            //Self::Enumerate(x)  => ExpressionKind::Enumerate(x.name.clone()),
+            Self::Enumerate(x)  => ExpressionKind::Enumerate(x.name.clone()),
             Self::Array(_)      => ExpressionKind::Array,
         }
     }
@@ -627,6 +635,7 @@ impl Expression {
         match self {
             Expression::Value(value) => match value {
                 ExpressionValue::Path(path) => path.analyze(scope),
+                // TO-DO don't I need to analyze structure & enumerate?
                 _ => Ok(value.kind()),
             },
             Expression::Operation(operator, e_a, e_b) => {
@@ -706,6 +715,20 @@ impl Expression {
                             }
 
                             function.push(Instruction::PushStructure(structure.clone()))
+                        },
+                        x => panic!("declaration is not a structure: {x:?}")
+                    }
+                }
+                ExpressionValue::Enumerate(value) => {
+                    let enumerate = scope.get_declaration(value.name.clone()).unwrap();
+
+                    match enumerate {
+                        Declaration::Enumerate(enumerate) => {
+                            for l in value.list.iter().rev() {
+                                l.compile(scope, function)?;
+                            }
+
+                            function.push(Instruction::PushEnumerate(enumerate.clone(), value.kind.text.clone()))
                         },
                         x => panic!("declaration is not a structure: {x:?}")
                     }
@@ -1130,8 +1153,8 @@ impl Block {
         let mut scope_block = Scope::new(Some(Box::new(scope.clone())));
 
         for variable in &argument {
-            let kind = variable.analyze(scope)?;
-            let index = scope.get_and_add_slot();
+            let kind = variable.analyze(&scope_block)?;
+            let index = scope_block.get_and_add_slot();
 
             let definition = Definition {
                 span: variable.span.clone(),
@@ -1144,7 +1167,7 @@ impl Block {
                 index: Some(index),
             };
 
-            scope.set_declaration(variable.name.clone(), Declaration::Definition(definition));
+            scope_block.set_declaration(variable.name.clone(), Declaration::Definition(definition));
         }
 
         for statement in &self.code {
@@ -1299,16 +1322,21 @@ pub struct Function {
     pub enter: Vec<Variable>,
     pub leave: Option<Identifier>,
     pub block: Block,
+    pub method: bool,
 }
 
 impl Function {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+    pub fn parse_token(
+        token_buffer: &mut TokenBuffer,
+        parent: Option<Identifier>,
+    ) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Function, |token_buffer| {
             token_buffer.want(TokenKind::Function)?;
 
             let name = token_buffer.want_identifier()?;
             let mut enter = Vec::new();
             let mut leave = None;
+            let mut method = false;
 
             token_buffer.want(TokenKind::ParenthesisBegin)?;
 
@@ -1316,11 +1344,22 @@ impl Function {
             if token_buffer.want_peek(TokenKind::ParenthesisClose) {
                 token_buffer.want(TokenKind::ParenthesisClose)?;
             } else {
+                let mut first = true;
+
                 Statement::parse_comma(
                     token_buffer,
                     TokenKind::ParenthesisClose,
                     |token_buffer| {
-                        enter.push(Variable::parse_token(token_buffer)?);
+                        if first {
+                            if token_buffer.want_peek(TokenKind::SelfLower) {
+                                method = true;
+                            }
+                        }
+
+                        enter.push(Variable::parse_token(token_buffer, parent.clone())?);
+
+                        first = false;
+
                         Ok(())
                     },
                 )?;
@@ -1330,7 +1369,18 @@ impl Function {
 
             if token_buffer.want_peek(TokenKind::Colon) {
                 token_buffer.want(TokenKind::Colon)?;
-                leave = Some(token_buffer.want_identifier()?);
+
+                if token_buffer.want_peek(TokenKind::SelfUpper) {
+                    token_buffer.want(TokenKind::SelfUpper)?;
+
+                    if let Some(parent) = &parent {
+                        leave = Some(parent.clone());
+                    } else {
+                        panic!("self in non-structure/enumerate")
+                    }
+                } else {
+                    leave = Some(token_buffer.want_identifier()?);
+                }
             }
 
             let block = Block::parse_token(token_buffer)?;
@@ -1341,6 +1391,7 @@ impl Function {
                 enter,
                 leave,
                 block,
+                method,
             })
         })
     }
@@ -1363,8 +1414,6 @@ impl Function {
                 None,
             ));
         }
-
-        //println!("{flow:#?}");
 
         Ok(())
     }
@@ -1391,19 +1440,39 @@ pub struct Variable {
 }
 
 impl Variable {
-    fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+    fn parse_token(
+        token_buffer: &mut TokenBuffer,
+        parent: Option<Identifier>,
+    ) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Variable, |token_buffer| {
-            let name = token_buffer.want_identifier()?;
-            token_buffer.want(TokenKind::Colon)?;
+            let (name, reference, kind) = if token_buffer.want_peek(TokenKind::SelfLower) {
+                token_buffer.want(TokenKind::SelfLower)?;
 
-            let reference = if token_buffer.want_peek(TokenKind::Ampersand) {
-                token_buffer.want(TokenKind::Ampersand)?;
-                true
+                if let Some(parent) = &parent {
+                    (
+                        // TO-DO use self-lower span?
+                        Identifier::from_string("self".to_string(), Point::default()).unwrap(),
+                        false,
+                        parent.clone(),
+                    )
+                } else {
+                    panic!("self on non-structure/enumerate")
+                }
             } else {
-                false
-            };
+                let name = token_buffer.want_identifier()?;
+                token_buffer.want(TokenKind::Colon)?;
 
-            let kind = token_buffer.want_identifier()?;
+                let reference = if token_buffer.want_peek(TokenKind::Ampersand) {
+                    token_buffer.want(TokenKind::Ampersand)?;
+                    true
+                } else {
+                    false
+                };
+
+                let kind = token_buffer.want_identifier()?;
+
+                (name, reference, kind)
+            };
 
             Ok(Self {
                 span: token_buffer.get_span(),
@@ -1515,6 +1584,7 @@ impl StructureD {
 #[derive(Debug, Clone)]
 pub struct Structure {
     pub name: Identifier,
+    pub parent: Option<Identifier>,
     pub variable: BTreeMap<String, Variable>,
     pub function: BTreeMap<String, Function>,
 }
@@ -1529,6 +1599,14 @@ impl Structure {
 
             let name = token_buffer.want_identifier()?;
 
+            let parent = if token_buffer.want_peek(TokenKind::Colon) {
+                token_buffer.want(TokenKind::Colon)?;
+
+                Some(token_buffer.want_identifier()?)
+            } else {
+                None
+            };
+
             token_buffer.want(TokenKind::CurlyBegin)?;
 
             while let Some(token) = token_buffer.peek() {
@@ -1537,10 +1615,10 @@ impl Structure {
                 }
 
                 if token.class.kind() == TokenKind::Function {
-                    let f = Function::parse_token(token_buffer)?;
+                    let f = Function::parse_token(token_buffer, Some(name.clone()))?;
                     function.insert(f.name.text.clone(), f);
                 } else if token.class.kind() == TokenKind::Identifier {
-                    let v = Variable::parse_token(token_buffer)?;
+                    let v = Variable::parse_token(token_buffer, None)?;
                     variable.insert(v.name.text.clone(), v);
 
                     if let Some(token) = token_buffer.peek()
@@ -1553,15 +1631,11 @@ impl Structure {
                 }
             }
 
-            //Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
-            //    variable.push(Variable::parse_token(token_buffer)?);
-            //    Ok(())
-            //})?;
-
             token_buffer.want(TokenKind::CurlyClose)?;
 
             Ok(Self {
                 name,
+                parent,
                 variable,
                 function,
             })
@@ -1584,15 +1658,47 @@ impl Structure {
 //================================================================
 
 #[derive(Debug, Clone)]
+pub struct EnumerateD {
+    pub name: Identifier,
+    pub kind: Identifier,
+    pub list: Vec<Expression>,
+}
+
+impl EnumerateD {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        token_buffer.parse(ErrorHint::Structure, |token_buffer| {
+            let mut list = Vec::new();
+
+            let name = token_buffer.want_identifier()?;
+            token_buffer.want(TokenKind::Colon)?;
+            let kind = token_buffer.want_identifier()?;
+
+            token_buffer.want(TokenKind::CurlyBegin)?;
+
+            Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
+                list.push(Expression::parse_token(token_buffer, 0.0)?);
+                Ok(())
+            })?;
+
+            token_buffer.want(TokenKind::CurlyClose)?;
+
+            Ok(Self { name, kind, list })
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Enumerate {
     pub name: Identifier,
-    pub list: Vec<Identifier>,
+    pub variable: BTreeMap<String, Vec<Identifier>>,
+    pub function: BTreeMap<String, Function>,
 }
 
 impl Enumerate {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Enumerate, |token_buffer| {
-            let mut list = Vec::new();
+            let mut variable = BTreeMap::new();
+            let mut function = BTreeMap::new();
 
             token_buffer.want(TokenKind::Enumerate)?;
 
@@ -1600,15 +1706,61 @@ impl Enumerate {
 
             token_buffer.want(TokenKind::CurlyBegin)?;
 
-            Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
-                list.push(token_buffer.want_identifier()?);
-                Ok(())
-            })?;
+            while let Some(token) = token_buffer.peek() {
+                if token.class.kind() == TokenKind::CurlyClose {
+                    break;
+                }
+
+                if token.class.kind() == TokenKind::Function {
+                    let f = Function::parse_token(token_buffer, Some(name.clone()))?;
+                    function.insert(f.name.text.clone(), f);
+                } else if token.class.kind() == TokenKind::Identifier {
+                    let name = token_buffer.want_identifier()?;
+                    let mut kind = Vec::new();
+
+                    if token_buffer.want_peek(TokenKind::ParenthesisBegin) {
+                        token_buffer.want(TokenKind::ParenthesisBegin)?;
+
+                        Statement::parse_comma(
+                            token_buffer,
+                            TokenKind::ParenthesisClose,
+                            |token_buffer| {
+                                kind.push(token_buffer.want_identifier()?);
+                                Ok(())
+                            },
+                        )?;
+
+                        token_buffer.want(TokenKind::ParenthesisClose)?;
+                    }
+
+                    variable.insert(name.text, kind);
+
+                    if let Some(token) = token_buffer.peek()
+                        && token.class.kind() == TokenKind::Comma
+                    {
+                        token_buffer.next();
+                    } else {
+                        break;
+                    }
+                }
+            }
 
             token_buffer.want(TokenKind::CurlyClose)?;
 
-            Ok(Self { name, list })
+            Ok(Self {
+                name,
+                variable,
+                function,
+            })
         })
+    }
+
+    pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
+        for function in self.function.values_mut() {
+            function.analyze(scope)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -1656,8 +1808,6 @@ impl Path {
     }
 
     pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
-        println!("enter path: {:?}", self);
-
         let mut active = None;
         let mut result = ExpressionKind::Null;
 
@@ -1757,8 +1907,6 @@ impl Path {
             }
         }
 
-        println!("leave path: {:?}", self);
-
         Ok(result)
     }
 
@@ -1842,7 +1990,6 @@ impl Path {
                                 _ => todo!(),
                             }
                         } else {
-                            println!("compile: {:#?}", scope.symbol);
                             panic!("compile: unknown symbol: {}", identifier.text);
                         }
                     }

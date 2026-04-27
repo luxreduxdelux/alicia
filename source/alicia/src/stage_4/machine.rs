@@ -1,4 +1,5 @@
 use crate::helper::error::Error;
+use crate::stage_2::construct::Enumerate as EnumerateD;
 use crate::stage_2::construct::Structure as StructureD;
 use crate::stage_2::scope::Declaration;
 use crate::stage_2::scope::FunctionNative;
@@ -31,23 +32,19 @@ struct EnumerateMap {
 pub struct Machine {
     pub function: HashMap<String, FunctionKind>,
     structure: HashMap<String, StructureMap>,
-    //pub enumerate: HashMap<String, EnumerateMap>,
+    enumerate: HashMap<String, EnumerateMap>,
 }
 
 impl Machine {
     pub fn new(scope: &Scope) -> Result<Self, Error> {
         let mut function = HashMap::default();
         let mut structure = HashMap::default();
-        //let mut enumerate = HashMap::default();
+        let mut enumerate = HashMap::default();
 
         for value in scope.symbol.clone().values() {
             match value {
                 Declaration::Function(f) => {
                     let compile = f.compile(scope)?;
-
-                    for (i, c) in compile.buffer.iter().enumerate() {
-                        println!("{i}: {c:#?}");
-                    }
 
                     function.insert(f.name.text.clone(), FunctionKind::Function(compile));
                 }
@@ -65,6 +62,17 @@ impl Machine {
 
                     structure.insert(s.name.text.clone(), map);
                 }
+                Declaration::Enumerate(s) => {
+                    let mut map = EnumerateMap::default();
+
+                    for (name, function) in &s.function {
+                        let compile = function.compile(scope)?;
+
+                        map.function.insert(name.to_string(), compile);
+                    }
+
+                    enumerate.insert(s.name.text.clone(), map);
+                }
                 _ => {}
             }
         }
@@ -72,7 +80,7 @@ impl Machine {
         Ok(Self {
             function,
             structure,
-            //enumerate,
+            enumerate,
         })
     }
 
@@ -189,7 +197,7 @@ pub enum Value {
     Decimal(f64),
     Boolean(bool),
     Structure(Structure),
-    //Enumerate(Enumerate),
+    Enumerate(Enumerate),
     //Array(Vec<Value>),
 }
 
@@ -204,6 +212,23 @@ impl Structure {
         Self {
             kind,
             data: HashMap::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Enumerate {
+    pub name: String,
+    pub kind: String,
+    pub data: Vec<Value>,
+}
+
+impl Enumerate {
+    fn new(name: String, kind: String) -> Self {
+        Self {
+            name,
+            kind,
+            data: Vec::default(),
         }
     }
 }
@@ -233,6 +258,25 @@ impl Display for Value {
 
                 formatter.write_str("}")
             },
+            Value::Enumerate(value) => {
+                formatter.write_str(&value.name)?;
+                formatter.write_str(" : ")?;
+                formatter.write_str(&value.kind)?;
+
+                formatter.write_str(" { ")?;
+
+                let length = value.data.len();
+
+                for (i, v) in value.data.iter().enumerate() {
+                    if i == length - 1 {
+                        formatter.write_str(&format!("{v} "))?;
+                    } else {
+                        formatter.write_str(&format!("{v}, "))?;
+                    }
+                }
+
+                formatter.write_str("}")
+            },
         }
     }
 }
@@ -254,6 +298,7 @@ impl Value {
             Self::Decimal(_)   => ValueKind::Decimal,
             Self::Boolean(_)   => ValueKind::Boolean,
             Self::Structure(_) => ValueKind::Structure,
+            Self::Enumerate(_) => ValueKind::Enumerate,
         }
     }
 }
@@ -308,6 +353,7 @@ pub enum Instruction {
     Branch(usize),
     Return(bool),
     PushStructure(StructureD),
+    PushEnumerate(EnumerateD, String),
     Push(Value),
     Save(usize),
     SaveField(String),
@@ -434,6 +480,16 @@ impl Function {
                     }
 
                     frame.push(Value::Structure(s));
+                }
+                Instruction::PushEnumerate(enumerate, kind) => {
+                    let k = enumerate.variable.get(kind).unwrap();
+                    let mut e = Enumerate::new(enumerate.name.text.clone(), kind.to_string());
+
+                    for _ in k {
+                        e.data.push(frame.pop());
+                    }
+
+                    frame.push(Value::Enumerate(e));
                 }
                 Instruction::Push(value) => {
                     frame.push(value.clone());

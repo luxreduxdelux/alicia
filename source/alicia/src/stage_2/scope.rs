@@ -82,7 +82,7 @@ impl Scope {
         while let Some(token) = token_buffer.peek() {
             match token.class {
                 TokenClass::Function => {
-                    let function = Function::parse_token(&mut token_buffer)?;
+                    let function = Function::parse_token(&mut token_buffer, None)?;
                     self.set_declaration(function.name.clone(), Declaration::Function(function));
                 }
                 TokenClass::Structure => {

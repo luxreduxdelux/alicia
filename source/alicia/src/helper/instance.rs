@@ -42,7 +42,7 @@ impl Builder {
             );
         }
 
-        Analysis::analyze_tree(&mut scope)?;
+        let scope = Analysis::analyze_tree(scope)?;
 
         //================================================================
 
