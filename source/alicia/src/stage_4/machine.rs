@@ -7,8 +7,10 @@ use crate::stage_2::scope::Scope;
 
 //================================================================
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::rc::Rc;
 
 //================================================================
 
@@ -45,6 +47,12 @@ impl Machine {
             match value {
                 Declaration::Function(f) => {
                     let compile = f.compile(scope)?;
+
+                    if f.name.text == "main" {
+                        //for (i, c) in compile.buffer.iter().enumerate() {
+                        //    println!("{i}: {c:#?}");
+                        //}
+                    }
 
                     function.insert(f.name.text.clone(), FunctionKind::Function(compile));
                 }
@@ -103,21 +111,44 @@ impl Machine {
 
 #[derive(Debug, Clone, Default)]
 struct Frame {
-    table: HashMap<usize, Value>,
-    stack: Vec<Value>,
+    table: HashMap<usize, ValuePointer>,
+    stack: Vec<ValuePointer>,
     cursor: usize,
 }
 
 impl Frame {
     fn save(&mut self, index: usize, value: Value) {
-        self.table.insert(index, value);
+        if self.table.contains_key(&index) {
+            let v = self.table.get(&index).unwrap();
+            let v = v.borrow_mut().clone();
+
+            match v {
+                Value::Reference(ref_cell) => {
+                    let mut r = ref_cell.borrow_mut();
+                    *r = value;
+                }
+                _ => {
+                    self.table.insert(index, Rc::new(RefCell::new(value)));
+                }
+            }
+        } else {
+            self.table.insert(index, Rc::new(RefCell::new(value)));
+        }
     }
 
     fn load(&mut self, index: &usize) -> Value {
         if let Some(value) = self.table.get(index) {
+            value.borrow().clone()
+        } else {
+            panic!("Frame::load(): No value with an index of \"{index}\".")
+        }
+    }
+
+    fn load_pointer(&mut self, index: &usize) -> ValuePointer {
+        if let Some(value) = self.table.get(index) {
             value.clone()
         } else {
-            panic!("Machine::load(): No value with an index of \"{index}\".")
+            panic!("Frame::load_pointer(): No value with an index of \"{index}\".")
         }
     }
 
@@ -126,24 +157,24 @@ impl Frame {
     }
 
     fn push(&mut self, value: Value) {
-        self.stack.push(value)
+        self.stack.push(Rc::new(RefCell::new(value)))
     }
 
     fn pop(&mut self) -> Value {
         if let Some(pop) = self.stack.pop() {
-            pop
+            pop.borrow().clone()
         } else {
-            panic!("Machine::pop(): No element on the stack. \n{:#?}", self)
+            self.panic("Frame::pop(): No value on the stack.".to_string())
         }
     }
 
     fn pop_string(&mut self) -> String {
         let pop = self.pop();
 
-        if let Value::String(value) = pop {
+        if let Value::String(value) = pop.clone() {
             value
         } else {
-            panic!("Machine::pop_string(): Invalid value \"{pop:?}\".")
+            self.panic(format!("Frame::pop_string(): Invalid value \"{pop:?}\"."))
         }
     }
 
@@ -153,7 +184,7 @@ impl Frame {
         if let Value::Integer(value) = pop {
             value
         } else {
-            panic!("Machine::pop_integer(): Invalid value \"{pop:?}\".")
+            self.panic(format!("Frame::pop_integer(): Invalid value \"{pop:?}\"."))
         }
     }
 
@@ -163,7 +194,7 @@ impl Frame {
         if let Value::Decimal(value) = pop {
             value
         } else {
-            panic!("Machine::pop_decimal(): Invalid value \"{pop:?}\".")
+            self.panic(format!("Frame::pop_decimal(): Invalid value \"{pop:?}\"."))
         }
     }
 
@@ -173,7 +204,7 @@ impl Frame {
         if let Value::Boolean(value) = pop {
             value
         } else {
-            panic!("Machine::pop_boolean(): Invalid value \"{pop:?}\".")
+            self.panic(format!("Frame::pop_boolean(): Invalid value \"{pop:?}\"."))
         }
     }
 
@@ -183,12 +214,43 @@ impl Frame {
         if let Value::Structure(value) = pop {
             value
         } else {
-            panic!("Machine::pop_structure(): Invalid value \"{pop:?}\".")
+            self.panic(format!(
+                "Frame::pop_structure(): Invalid value \"{pop:?}\"."
+            ))
         }
+    }
+
+    fn pop_reference(&mut self) -> ValuePointer {
+        let pop = self.pop();
+
+        if let Value::Reference(value) = pop {
+            value
+        } else {
+            self.panic(format!(
+                "Frame::pop_structure(): Invalid value \"{pop:?}\"."
+            ))
+        }
+    }
+
+    fn pop_array(&mut self) -> Vec<ValuePointer> {
+        let pop = self.pop();
+
+        if let Value::Array(value) = pop {
+            value
+        } else {
+            self.panic(format!("Frame::pop_array(): Invalid value \"{pop:?}\"."))
+        }
+    }
+
+    fn panic<T>(&self, mut text: String) -> T {
+        text.push_str(&format!("\n{:#?}", self));
+        panic!("{}", text)
     }
 }
 
 //================================================================
+
+type ValuePointer = Rc<RefCell<Value>>;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -198,13 +260,14 @@ pub enum Value {
     Boolean(bool),
     Structure(Structure),
     Enumerate(Enumerate),
-    //Array(Vec<Value>),
+    Reference(ValuePointer),
+    Array(Vec<ValuePointer>),
 }
 
 #[derive(Debug, Clone)]
 pub struct Structure {
     pub kind: String,
-    pub data: HashMap<String, Value>,
+    pub data: HashMap<String, ValuePointer>,
 }
 
 impl Structure {
@@ -250,9 +313,9 @@ impl Display for Value {
 
                 for (i, (k, v)) in value.data.iter().enumerate() {
                     if i == length - 1 {
-                        formatter.write_str(&format!("{k}: {v} "))?;
+                        formatter.write_str(&format!("{k}: {v:?} "))?;
                     } else {
-                        formatter.write_str(&format!("{k}: {v}, "))?;
+                        formatter.write_str(&format!("{k}: {v:?}, "))?;
                     }
                 }
 
@@ -277,6 +340,25 @@ impl Display for Value {
 
                 formatter.write_str("}")
             },
+            Value::Reference(value) => {
+                formatter.write_str(&format!("{value:?}"))
+            }
+            Value::Array(value) => {
+                formatter.write_str("[")?;
+
+                let length = value.len();
+
+                for (i, v) in value.iter().enumerate() {
+                    if i == length - 1 {
+                        formatter.write_str(&format!("{v:?}"))?;
+                    } else {
+                        formatter.write_str(&format!("{v:?}, "))?;
+                    }
+                }
+
+                formatter.write_str("]")
+            }
+
         }
     }
 }
@@ -286,7 +368,23 @@ impl Value {
         if let Self::String(value) = self {
             value.to_string()
         } else {
-            panic!("Value::as_string(): Value is not a string.")
+            panic!("Value::as_string(): Invalid value: {}", self)
+        }
+    }
+
+    pub fn as_integer(&self) -> i64 {
+        if let Self::Integer(value) = self {
+            *value
+        } else {
+            panic!("Value::as_integer(): Invalid value: {}", self)
+        }
+    }
+
+    pub fn as_decimal(&self) -> f64 {
+        if let Self::Decimal(value) = self {
+            *value
+        } else {
+            panic!("Value::as_decimal(): Invalid value: {}", self)
         }
     }
 
@@ -299,6 +397,8 @@ impl Value {
             Self::Boolean(_)   => ValueKind::Boolean,
             Self::Structure(_) => ValueKind::Structure,
             Self::Enumerate(_) => ValueKind::Enumerate,
+            Self::Reference(_) => ValueKind::Reference,
+            Self::Array(_)     => ValueKind::Array,
         }
     }
 }
@@ -340,6 +440,7 @@ pub enum Instruction {
     Subtract,
     Multiply,
     Divide,
+    Negate,
     Not,
     And,
     Or,
@@ -352,15 +453,22 @@ pub enum Instruction {
     Jump(usize),
     Branch(usize),
     Return(bool),
+    PushReference(usize),
     PushStructure(StructureD),
     PushEnumerate(EnumerateD, String),
+    PushArray(usize),
+    //PushTable,
+    //PushTuple,
+    //PushRange,
     Push(Value),
     Save(usize),
+    SaveReference,
     SaveField(String),
+    SaveIndex,
     Load(usize),
     LoadField(String),
+    LoadIndex,
     Hide(usize),
-    //LoadIndex(usize),
     Call(FunctionCall, usize),
 }
 
@@ -472,11 +580,29 @@ impl Function {
                         _ => panic!("Divide: Invalid value {a:?}"),
                     }
                 }
+                Instruction::Negate => {
+                    let a = frame.pop();
+
+                    match a {
+                        Value::Integer(a) => {
+                            frame.push(Value::Integer(-a));
+                        }
+                        Value::Decimal(a) => {
+                            frame.push(Value::Decimal(-a));
+                        }
+                        _ => panic!("Negate: Invalid value {a:?}"),
+                    }
+                }
+                Instruction::PushReference(index) => {
+                    let value = frame.load_pointer(index);
+                    frame.push(Value::Reference(value));
+                }
                 Instruction::PushStructure(structure) => {
                     let mut s = Structure::new(structure.name.text.clone());
 
                     for variable in &structure.variable {
-                        s.data.insert(variable.0.to_string(), frame.pop());
+                        s.data
+                            .insert(variable.0.to_string(), Rc::new(RefCell::new(frame.pop())));
                     }
 
                     frame.push(Value::Structure(s));
@@ -491,6 +617,15 @@ impl Function {
 
                     frame.push(Value::Enumerate(e));
                 }
+                Instruction::PushArray(arity) => {
+                    let mut a = Vec::new();
+
+                    for _ in 0..*arity {
+                        a.push(Rc::new(RefCell::new(frame.pop())));
+                    }
+
+                    frame.push(Value::Array(a));
+                }
                 Instruction::Push(value) => {
                     frame.push(value.clone());
                 }
@@ -498,11 +633,34 @@ impl Function {
                     let value = frame.pop();
                     frame.save(*index, value);
                 }
+                Instruction::SaveReference => {
+                    let value_r = frame.pop_reference();
+                    let mut value_r = value_r.borrow_mut();
+                    let value_v = frame.pop();
+
+                    *value_r = value_v;
+                }
                 Instruction::SaveField(name) => {
-                    let mut structure = frame.pop_structure();
-                    let value = frame.pop();
-                    structure.data.insert(name.to_string(), value);
-                    frame.push(Value::Structure(structure));
+                    let reference = frame.pop_reference().borrow().clone();
+
+                    if let Value::Structure(structure) = reference {
+                        let field = structure
+                            .data
+                            .get(name)
+                            .expect(&format!("no field {name} for structure {structure:?}"));
+
+                        frame.push(Value::Reference(field.clone()));
+                    }
+                }
+                Instruction::SaveIndex => {
+                    let value = frame.pop_integer();
+                    let reference = frame.pop_reference().borrow().clone();
+
+                    if let Value::Array(array) = reference {
+                        let field = &array[value as usize];
+
+                        frame.push(Value::Reference(field.clone()));
+                    }
                 }
                 Instruction::Load(index) => {
                     let value = frame.load(index);
@@ -510,8 +668,13 @@ impl Function {
                 }
                 Instruction::LoadField(name) => {
                     let value = frame.pop_structure();
-                    let value = value.data.get(name).unwrap();
-                    frame.push(value.clone());
+                    let value = value.data.get(name).unwrap().borrow().clone();
+                    frame.push(value);
+                }
+                Instruction::LoadIndex => {
+                    let index = frame.pop_integer();
+                    let array = frame.pop_array();
+                    frame.push(array[index as usize].borrow().clone());
                 }
                 Instruction::Hide(index) => {
                     frame.hide(index);
@@ -695,8 +858,9 @@ impl Function {
     }
 }
 
+#[derive(Debug)]
 pub struct Argument {
-    pub memory: HashMap<usize, Value>,
+    pub memory: HashMap<usize, ValuePointer>,
     pub buffer: Vec<Value>,
     cursor: usize,
 }

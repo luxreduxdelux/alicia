@@ -1,0 +1,213 @@
+structure Vector {
+    x: Decimal,
+    y: Decimal,
+}
+
+function vector_new(x: Decimal, y: Decimal) : Vector {
+    return Vector {
+        x := x,
+        y := y,
+    };
+}
+
+#================================================================
+
+structure Player {
+    point: Vector,
+    angle: Vector,
+}
+
+function player_new() : Player {
+    return Player {
+        point := vector_new(1.0, 1.0),
+        angle := vector_new(0.0, 4.0),
+    };
+}
+
+#================================================================
+
+structure Level {
+    data: Array,
+    size: Integer,
+}
+
+function level_new() : Level {
+    let brick := vector_new(6.0, 7.0);
+    let grass := vector_new(10.0, 6.0);
+    let stone := vector_new(11.0, 6.0);
+    let dot   := vector_new(11.0, 2.0);
+    let box   := vector_new(6.0, 0.0);
+
+    return Level {
+        data := [
+            [ vector_new(0.0, 0.0), brick, 0 ],
+            [ vector_new(1.0, 0.0), brick, 0 ],
+            [ vector_new(2.0, 0.0), brick, 0 ],
+            [ vector_new(3.0, 0.0), brick, 0 ],
+            [ vector_new(4.0, 0.0), brick, 0 ],
+            [ vector_new(5.0, 0.0), grass, 1 ],
+            [ vector_new(6.0, 0.0), grass, 1 ],
+
+            [ vector_new(0.0, 1.0), brick, 0 ],
+            [ vector_new(1.0, 1.0), stone, 1 ],
+            [ vector_new(2.0, 1.0), stone, 1 ],
+            [ vector_new(3.0, 1.0), stone, 1 ],
+            [ vector_new(4.0, 1.0), brick, 0 ],
+            [ vector_new(5.0, 1.0), grass, 1 ],
+            [ vector_new(6.0, 1.0), grass, 1 ],
+
+            [ vector_new(0.0, 2.0), brick, 0 ],
+            [ vector_new(1.0, 2.0), stone, 1 ],
+            [ vector_new(2.0, 2.0), brick, 0 ],
+            [ vector_new(3.0, 2.0), box,   2 ],
+            [ vector_new(4.0, 2.0), brick, 0 ],
+            [ vector_new(5.0, 2.0), brick, 0 ],
+            [ vector_new(6.0, 2.0), brick, 0 ],
+
+            [ vector_new(0.0, 3.0), brick, 0 ],
+            [ vector_new(1.0, 3.0), stone, 1 ],
+            [ vector_new(2.0, 3.0), box,   2 ],
+            [ vector_new(3.0, 3.0), stone, 1 ],
+            [ vector_new(4.0, 3.0), dot,   3 ],
+            [ vector_new(5.0, 3.0), dot,   3 ],
+            [ vector_new(6.0, 3.0), brick, 0 ],
+
+            [ vector_new(0.0, 4.0), brick, 0 ],
+            [ vector_new(1.0, 4.0), brick, 0 ],
+            [ vector_new(2.0, 4.0), brick, 0 ],
+            [ vector_new(3.0, 4.0), brick, 0 ],
+            [ vector_new(4.0, 4.0), brick, 0 ],
+            [ vector_new(5.0, 4.0), brick, 0 ],
+            [ vector_new(6.0, 4.0), brick, 0 ],
+        ],
+        size := 7 * 5,
+    };
+}
+
+#================================================================
+
+function main(): Boolean {
+    let player := player_new();
+    let level  := level_new();
+
+    loop (window_should_close()) {
+        draw_begin();
+
+            #================================================================
+            # level logic
+            #================================================================
+
+            let l_i := 0;
+            let l_d := level.data;
+            let l_s := level.size;
+
+            # draw every tile, except the box tile (draw ordering)
+            loop (l_i < l_s) {
+                let l_current := l_d[l_i];
+                let current_point := l_current[0];
+                let current_which := l_current[1];
+                let current_style := to_integer(l_current[2]);
+
+                if (current_style != 2) {
+                    draw_texture((current_point.x) * 128.0, (current_point.y) * 128.0, current_which.x, current_which.y);
+                }
+
+                l_i := l_i + 1;
+            }
+
+            l_i := 0;
+
+            # draw every box
+            loop (l_i < l_s) {
+                let l_current := l_d[l_i];
+                let current_point := l_current[0];
+                let current_which := l_current[1];
+                let current_style := to_integer(l_current[2]);
+
+                if (current_style = 2) {
+                    draw_texture((current_point.x) * 128.0, (current_point.y) * 128.0, current_which.x, current_which.y);
+                }
+
+                l_i := l_i + 1;
+            }
+
+            #================================================================
+            # player logic
+            #================================================================
+
+            let movement_x := 0.0;
+            let movement_y := 0.0;
+
+            # A/D
+            if (is_key_press(65)) { movement_x := -1.0; player.angle := vector_new(3.0, 6.0); }
+            if (is_key_press(68)) { movement_x :=  1.0; player.angle := vector_new(0.0, 6.0); }
+
+            # W/S
+            if (is_key_press(87)) { movement_y := -1.0; player.angle := vector_new(3.0, 4.0); }
+            if (is_key_press(83)) { movement_y :=  1.0; player.angle := vector_new(0.0, 4.0); }
+
+            # run movement logic
+            if ((movement_x != 0.0) or (movement_y != 0.0)) {
+                # ideal player position
+                let wish_move := vector_new(
+                    player.point.x + movement_x,
+                    player.point.y + movement_y
+                );
+
+                # index into the level data array
+                let index := (wish_move.y) * 7.0 + (wish_move.x);
+                let which := l_d[to_integer(index)];
+                let style := to_integer(which[2]);
+
+                # walking into box
+                if (style = 2) {
+                    let wish_move_new := vector_new(
+                        player.point.x + movement_x * 2.0,
+                        player.point.y + movement_y * 2.0
+                    );
+
+                    let index_move := (wish_move_new.y) * 7.0 + (wish_move_new.x);
+                    let which_move := l_d[to_integer(index_move)];
+                    let style_move := to_integer(which_move[2]);
+
+                    # if the new object isn't a brick wall or another box
+                    if ((style_move != 0) and (style_move != 2)) {
+                        # move the box
+                        l_d[to_integer(index_move)] := [
+                            wish_move_new,
+                            which[1],
+                            which[2],
+                        ];
+
+                        # load a default stone tile into the old tile (wrong, but whatever)
+                        l_d[to_integer(index)] := [
+                            wish_move,
+                            vector_new(11.0, 6.0),
+                            1,
+                        ];
+
+                        # move player
+                        player.point.x := player.point.x + movement_x;
+                        player.point.y := player.point.y + movement_y;
+                    }
+                } else {
+                    # if we're not walking into a brick wall
+                    if (style != 0) {
+                        # move player
+                        player.point.x := player.point.x + movement_x;
+                        player.point.y := player.point.y + movement_y;
+                    }
+                }
+            }
+
+            # draw player
+            draw_texture((player.point.x) * 128.0, (player.point.y) * 128.0, player.angle.x, player.angle.y);
+
+        draw_close();
+
+        # restart Alicia on Q key press
+        if (is_key_press(81)) { return true; }
+    }
+
+    return false;
+}

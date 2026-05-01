@@ -34,18 +34,17 @@ pub enum Statement {
 
 impl Statement {
     fn parse_identifier(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        // TO-DO does not account for +=, -=, etc.
-        if let Some(token) = token_buffer.peek_ahead(1)
-            && token.class.kind() == TokenKind::Definition
-        {
-            return Ok(Self::Assignment(Assignment::parse_token(token_buffer)?));
+        let expression = Expression::parse_token(token_buffer, 0.0)?;
+
+        if token_buffer.want_peek(TokenKind::ColonSemi) {
+            token_buffer.want(TokenKind::ColonSemi)?;
+            return Ok(Self::Expression(expression));
         }
 
-        let e = Expression::parse_token(token_buffer, 0.0)?;
-
-        token_buffer.want(TokenKind::ColonSemi)?;
-
-        Ok(Self::Expression(e))
+        Ok(Self::Assignment(Assignment::parse_token(
+            token_buffer,
+            expression,
+        )?))
     }
 
     fn parse_comma<F: FnMut(&mut TokenBuffer) -> Result<(), Error>>(
@@ -58,7 +57,6 @@ impl Statement {
                 break;
             }
 
-            //list.push(token_buffer.want_identifier()?);
             call(token_buffer)?;
 
             if let Some(token) = token_buffer.peek()
@@ -302,19 +300,21 @@ impl Iteration {
         token_buffer.parse(ErrorHint::Iteration, |token_buffer| {
             token_buffer.want(TokenKind::Loop)?;
 
-            let value = if token_buffer.want_peek(TokenKind::Identifier) {
-                if let Some(token) = token_buffer.peek_ahead(1)
-                    && token.class.kind() == TokenKind::Definition
-                {
-                    Some(IterationValue::Iterational(Assignment::parse_token(
-                        token_buffer,
-                    )?))
-                } else {
-                    Some(IterationValue::Conditional(Expression::parse_token(
-                        token_buffer,
-                        0.0,
-                    )?))
-                }
+            let value = if token_buffer.want_peek(TokenKind::ParenthesisBegin) {
+                //if let Some(token) = token_buffer.peek_ahead(1)
+                //    && token.class.kind() == TokenKind::Definition
+                //{
+                //    Some(IterationValue::Iterational(Assignment::parse_token(
+                //        token_buffer,
+                //    )?))
+                //} else {
+
+                token_buffer.want(TokenKind::ParenthesisBegin)?;
+                let value = Expression::parse_token(token_buffer, 0.0)?;
+                token_buffer.want(TokenKind::ParenthesisClose)?;
+
+                Some(IterationValue::Conditional(value))
+                //}
             } else {
                 None
             };
@@ -361,7 +361,7 @@ impl Iteration {
         function.push(Instruction::Jump(cursor));
 
         if let Some(branch) = branch {
-            function.change(Instruction::Branch(function.cursor()), branch);
+            function.change(Instruction::Branch(function.cursor() - 1), branch);
         }
 
         Ok(())
@@ -371,11 +371,13 @@ impl Iteration {
 #[derive(Debug, Clone, Eq)]
 pub enum ExpressionKind {
     Null,
-    Path,
+    Identifier,
     String,
     Integer,
     Decimal,
     Boolean,
+    Function(Identifier),
+    FunctionNative(Identifier),
     Structure(Identifier),
     Enumerate(Identifier),
     Array,
@@ -400,7 +402,7 @@ impl ExpressionKind {
 #[derive(Debug, Clone)]
 pub enum ExpressionValue {
     Null,
-    Path(Path),
+    Identifier(Identifier),
     String(String),
     Integer(i64),
     Decimal(f64),
@@ -414,12 +416,12 @@ impl Display for ExpressionValue {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Null             => formatter.write_str("Null"),
-            Self::Path(_)          => formatter.write_str("Path"),
-            Self::String(value)    => formatter.write_str(&value.to_string()),
-            Self::Integer(value)   => formatter.write_str(&value.to_string()),
-            Self::Decimal(value)   => formatter.write_str(&value.to_string()),
-            Self::Boolean(value)   => formatter.write_str(&value.to_string()),
+            Self::Null              => formatter.write_str("Null"),
+            Self::Identifier(value) => formatter.write_str(&value.text),
+            Self::String(value)     => formatter.write_str(&value.to_string()),
+            Self::Integer(value)    => formatter.write_str(&value.to_string()),
+            Self::Decimal(value)    => formatter.write_str(&value.to_string()),
+            Self::Boolean(value)    => formatter.write_str(&value.to_string()),
             _ => todo!(),
         }
     }
@@ -429,7 +431,7 @@ impl ExpressionValue {
     fn from_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         if let Some(token) = token_buffer.peek_value() {
             match token.class {
-                TokenClass::Identifier(_value) => {
+                TokenClass::Identifier(_) => {
                     if let Some(token) = token_buffer.peek_ahead(1)
                         && token.class.kind() == TokenKind::CurlyBegin
                     {
@@ -442,7 +444,7 @@ impl ExpressionValue {
                         return Ok(Self::Enumerate(EnumerateD::parse_token(token_buffer)?));
                     }
 
-                    Ok(Self::Path(Path::parse_token(token_buffer)?))
+                    Ok(Self::Identifier(token_buffer.want_identifier()?))
                 }
                 TokenClass::String(value) => {
                     token_buffer.next();
@@ -466,7 +468,7 @@ impl ExpressionValue {
                 ),
             }
         } else {
-            panic!("TO-DO from_token")
+            panic!("empty token buffer in from_token")
         }
     }
 
@@ -474,7 +476,7 @@ impl ExpressionValue {
     pub fn kind(&self) -> ExpressionKind {
         match self {
             Self::Null          => ExpressionKind::Null,
-            Self::Path(_)       => ExpressionKind::Path,
+            Self::Identifier(_) => ExpressionKind::Identifier,
             Self::String(_)     => ExpressionKind::String,
             Self::Integer(_)    => ExpressionKind::Integer,
             Self::Decimal(_)    => ExpressionKind::Decimal,
@@ -501,27 +503,33 @@ pub enum ExpressionOperator {
     GTE,
     LTE,
     EqualNot,
+    Dot,
     Reference,
+    Invocation(Vec<Expression>),
+    Indexation(Option<Box<Expression>>),
 }
 
 impl ExpressionOperator {
     #[rustfmt::skip]
     fn from_token(token: Token) -> Self {
         match token.class.kind() {
-            TokenKind::Add       => Self::Add,
-            TokenKind::Subtract  => Self::Subtract,
-            TokenKind::Multiply  => Self::Multiply,
-            TokenKind::Divide    => Self::Divide,
-            TokenKind::Not       => Self::Not,
-            TokenKind::And       => Self::And,
-            TokenKind::Or        => Self::Or,
-            TokenKind::GT        => Self::GT,
-            TokenKind::LT        => Self::LT,
-            TokenKind::Equal     => Self::Equal,
-            TokenKind::GTE       => Self::GTE,
-            TokenKind::LTE       => Self::LTE,
-            TokenKind::EqualNot  => Self::EqualNot,
-            TokenKind::Ampersand => Self::Reference,
+            TokenKind::Add              => Self::Add,
+            TokenKind::Subtract         => Self::Subtract,
+            TokenKind::Multiply         => Self::Multiply,
+            TokenKind::Divide           => Self::Divide,
+            TokenKind::Not              => Self::Not,
+            TokenKind::And              => Self::And,
+            TokenKind::Or               => Self::Or,
+            TokenKind::GT               => Self::GT,
+            TokenKind::LT               => Self::LT,
+            TokenKind::Equal            => Self::Equal,
+            TokenKind::GTE              => Self::GTE,
+            TokenKind::LTE              => Self::LTE,
+            TokenKind::EqualNot         => Self::EqualNot,
+            TokenKind::Dot              => Self::Dot,
+            TokenKind::Ampersand        => Self::Reference,
+            TokenKind::ParenthesisBegin => Self::Invocation(Vec::default()),
+            TokenKind::SquareBegin      => Self::Indexation(None),
             _ => panic!(
                 "Alicia internal error: ExpressionValue::parse_token(): want_token() gave back a token that is not a possible value"
             ),
@@ -533,8 +541,10 @@ impl ExpressionOperator {
         let token_a = Box::new(token_a);
 
         match self {
-            Self::Subtract  => Expression::OperationPrior(Self::Subtract, token_a),
-            Self::Reference => Expression::OperationPrior(Self::Reference, token_a),
+            Self::Subtract      => Expression::OperationPrior(Self::Subtract,   token_a),
+            Self::Reference     => Expression::OperationPrior(Self::Reference,  token_a),
+            Self::Invocation(_) => Expression::OperationAfter(token_a, self.clone()),
+            Self::Indexation(_) => Expression::OperationAfter(token_a, self.clone()),
             x => panic!("incorrect parse_token_mono operator: {x:?}")
         }
     }
@@ -557,6 +567,7 @@ impl ExpressionOperator {
             Self::GTE      => Expression::Operation(Self::GTE,      token_a, token_b),
             Self::LTE      => Expression::Operation(Self::LTE,      token_a, token_b),
             Self::EqualNot => Expression::Operation(Self::EqualNot, token_a, token_b),
+            Self::Dot      => Expression::Operation(Self::Dot, token_a, token_b),
             x => panic!("incorrect parse_token_binary operator: {x:?}")
         }
     }
@@ -564,21 +575,24 @@ impl ExpressionOperator {
     #[rustfmt::skip]
     fn bind_power(&self) -> (f32, f32) {
         match self {
-            Self::Add       => (1.0, 1.1),
-            Self::Subtract  => (1.0, 1.1),
-            Self::Multiply  => (2.0, 2.1),
-            Self::Divide    => (2.0, 2.1),
+            Self::Add           => (1.0, 1.1),
+            Self::Subtract      => (1.0, 1.1),
+            Self::Multiply      => (2.0, 2.1),
+            Self::Divide        => (2.0, 2.1),
             // TO-DO add actual bind power to these
-            Self::Not       => (1.0, 1.1),
-            Self::And       => (1.0, 1.1),
-            Self::Or        => (1.0, 1.1),
-            Self::GT        => (1.0, 1.1),
-            Self::LT        => (1.0, 1.1),
-            Self::Equal     => (1.0, 1.1),
-            Self::GTE       => (1.0, 1.1),
-            Self::LTE       => (1.0, 1.1),
-            Self::EqualNot  => (1.0, 1.1),
-            Self::Reference => (2.1, 2.0),
+            Self::Not           => (1.0, 1.1),
+            Self::And           => (1.0, 1.1),
+            Self::Or            => (1.0, 1.1),
+            Self::GT            => (1.0, 1.1),
+            Self::LT            => (1.0, 1.1),
+            Self::Equal         => (1.0, 1.1),
+            Self::GTE           => (1.0, 1.1),
+            Self::LTE           => (1.0, 1.1),
+            Self::EqualNot      => (1.0, 1.1),
+            Self::Dot           => (1.0, 1.1),
+            Self::Reference     => (2.0, 2.1),
+            Self::Invocation(_) => (2.1, 2.0),
+            Self::Indexation(_) => (2.1, 2.0),
         }
     }
 }
@@ -588,6 +602,7 @@ pub enum Expression {
     Value(ExpressionValue),
     Operation(ExpressionOperator, Box<Expression>, Box<Expression>),
     OperationPrior(ExpressionOperator, Box<Expression>),
+    OperationAfter(Box<Expression>, ExpressionOperator),
 }
 
 impl Expression {
@@ -599,17 +614,65 @@ impl Expression {
                 token_buffer.want(TokenKind::ParenthesisClose)?;
 
                 value
-            } else if let Some(token) = token_buffer.peek_operator() {
-                let operator = ExpressionOperator::from_token(token);
-
-                token_buffer.want_operator()?;
+            } else if token_buffer.want_peek(TokenKind::SquareBegin) {
+                Expression::Value(ExpressionValue::from_token(token_buffer)?)
+            } else if token_buffer.peek_operator().is_some() {
+                let operator = ExpressionOperator::from_token(token_buffer.want_operator()?);
 
                 ExpressionOperator::parse_token_mono(
                     &operator,
                     Expression::Value(ExpressionValue::from_token(token_buffer)?),
                 )
             } else {
-                Expression::Value(ExpressionValue::from_token(token_buffer)?)
+                let value = Expression::Value(ExpressionValue::from_token(token_buffer)?);
+
+                if let Some(operator) = token_buffer.peek_operator() {
+                    match operator.class.kind() {
+                        TokenKind::ParenthesisBegin => {
+                            let mut operator =
+                                ExpressionOperator::from_token(token_buffer.want_operator()?);
+
+                            match &mut operator {
+                                ExpressionOperator::Invocation(list) => {
+                                    Statement::parse_comma(
+                                        token_buffer,
+                                        TokenKind::ParenthesisClose,
+                                        |token_buffer| {
+                                            list.push(Expression::parse_token(token_buffer, 0.0)?);
+                                            Ok(())
+                                        },
+                                    )?;
+
+                                    token_buffer.want(TokenKind::ParenthesisClose)?;
+
+                                    ExpressionOperator::parse_token_mono(&operator, value)
+                                }
+                                _ => value,
+                            }
+                        }
+                        TokenKind::SquareBegin => {
+                            // TO-DO this is so fucking stupid, just *want* the SquareBegin and
+                            // return an Indexation rather than getting it from from_token which is dumb
+                            let mut operator =
+                                ExpressionOperator::from_token(token_buffer.want_operator()?);
+
+                            match &mut operator {
+                                ExpressionOperator::Indexation(expression) => {
+                                    *expression =
+                                        Some(Box::new(Expression::parse_token(token_buffer, 0.0)?));
+
+                                    token_buffer.want(TokenKind::SquareClose)?;
+
+                                    ExpressionOperator::parse_token_mono(&operator, value)
+                                }
+                                _ => value,
+                            }
+                        }
+                        _ => value,
+                    }
+                } else {
+                    value
+                }
             };
 
             while let Some(token) = token_buffer.peek_operator() {
@@ -630,16 +693,63 @@ impl Expression {
         })
     }
 
+    pub fn analyze_identifier(&self) -> Result<Identifier, Error> {
+        match self {
+            Expression::Value(value) => match value {
+                ExpressionValue::Identifier(identifier) => Ok(identifier.clone()),
+                _ => panic!("analyze_identifier: value is not an identifier"),
+            },
+            Expression::Operation(operator, a, _) => a.analyze_identifier(),
+            x => panic!("analyze_identifier: expression is not a value {x:#?}"),
+        }
+    }
+
     #[rustfmt::skip]
     pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
         match self {
             Expression::Value(value) => match value {
-                ExpressionValue::Path(path) => path.analyze(scope),
+                ExpressionValue::Identifier(identifier) => {
+                    let value = scope.get_declaration(identifier.clone()).expect(&format!("no declaration for identifier {identifier}"));
+
+                    match value {
+                        Declaration::Function(function) => {
+                            Ok(ExpressionKind::Function(function.name.clone()))
+                        },
+                        Declaration::FunctionNative(function) => {
+                            // TO-DO FNative's name should already be an Identifier...
+                            Ok(ExpressionKind::FunctionNative(Identifier::from_string(function.name.clone(), Point::default()).unwrap()))
+                        },
+                        Declaration::Definition(definition) => definition.value.analyze(scope),
+                        _ => todo!()
+                    }
+                },
                 // TO-DO don't I need to analyze structure & enumerate?
                 _ => Ok(value.kind()),
             },
             Expression::Operation(operator, e_a, e_b) => {
                 let a = e_a.analyze(scope)?;
+
+                match operator {
+                    ExpressionOperator::Dot => {
+                        let b = e_b.analyze_identifier()?;
+
+                        match &a {
+                            ExpressionKind::Structure(identifier) => {
+                                let structure = scope.get_declaration(identifier.clone()).unwrap();
+
+                                if let Declaration::Structure(structure) = structure {
+                                    let field = structure.variable.get(&b.text).unwrap();
+                                    return Variable::type_check_spanless(&field.kind, scope);
+                                } else {
+                                    panic!("dot operator: a is not a structure")
+                                }
+                            },
+                            _ => panic!("dot operator: a is not a structure {a:?}")
+                        }
+                    },
+                    _ => {}
+                }
+
                 let b = e_b.analyze(scope)?;
 
                 if a != b {
@@ -682,15 +792,143 @@ impl Expression {
                     }
                 }
             }
-            _ => todo!(),
+            Expression::OperationPrior(operator, value) => {
+                let value = value.analyze(scope)?;
+
+                if value.is_number() {
+                    match operator {
+                        ExpressionOperator::Subtract => Ok(value),
+                        _ => panic!("unsupported operator {operator:?} for value of type {value:?}"),
+                    }
+                } else if value == ExpressionKind::Boolean {
+                    match operator {
+                        ExpressionOperator::Not => Ok(ExpressionKind::Boolean),
+                        _ => panic!("unsupported operator {operator:?} for value of type {value:?}"),
+                    }
+                } else {
+                    panic!("unsupported operator {operator:?} for value of type {value:?}")
+                }
+
+            }
+            Expression::OperationAfter(value, operator) => {
+                let value = value.analyze(scope)?;
+
+                match operator {
+                    ExpressionOperator::Invocation(list) => {
+                        match value {
+                            ExpressionKind::Function(identifier) => {
+                                // TO-DO check if the function arguments are correct or not.
+                                let function = scope.get_declaration(identifier).unwrap();
+
+                                if let Declaration::Function(function) = function {
+                                    if let Some(leave) = &function.leave {
+                                        Variable::type_check_spanless(leave, scope)
+                                    } else {
+                                        Ok(ExpressionKind::Null)
+                                    }
+                                } else {
+                                    panic!("invalid native function")
+                                }
+                            },
+                            ExpressionKind::FunctionNative(identifier) => {
+                                // TO-DO check if the function arguments are correct or not.
+                                let function = scope.get_declaration(identifier).unwrap();
+
+                                if let Declaration::FunctionNative(function) = function {
+                                    Ok(function.leave.clone())
+                                } else {
+                                    panic!("invalid native function")
+                                }
+                            },
+                            _ => panic!("invalid value for invocation operator {value:?}")
+                        }
+                    },
+                    ExpressionOperator::Indexation(expression) => {
+                        // TO-DO check if expression is an integer type, return the index type (a is array, a[0] is integer)
+                        Ok(value)
+                    },
+                    _ => todo!(),
+                }
+            }
+
         }
+    }
+
+    pub fn compile_l(
+        &self,
+        scope: &Scope,
+        function: &mut MFunction,
+        from_dot: bool,
+    ) -> Result<(), Error> {
+        match self {
+            Expression::Value(value) => match value {
+                ExpressionValue::Identifier(identifier) => {
+                    let value = scope
+                        .get_declaration(identifier.clone())
+                        .expect(&format!("no identifier {identifier}"));
+
+                    match value {
+                        Declaration::Definition(definition) => {
+                            if from_dot {
+                                function.push(Instruction::PushReference(definition.index.unwrap()))
+                            } else {
+                                function.push(Instruction::Save(definition.index.unwrap()))
+                            }
+                        }
+                        _ => todo!(),
+                    }
+                }
+                x => panic!("invalid L-expression value {x:?}"),
+            },
+            Expression::Operation(operator, a, b) => match operator {
+                ExpressionOperator::Dot => {
+                    //println!("enter dot: {a:?} / {b:?}");
+
+                    a.compile_l(scope, function, true)?;
+
+                    let b = b.analyze_identifier()?;
+
+                    function.push(Instruction::SaveField(b.text));
+
+                    if !from_dot {
+                        function.push(Instruction::SaveReference);
+                    }
+                }
+                x => panic!("invalid L-expression operator {x:#?}"),
+            },
+            Expression::OperationAfter(value, operator) => match operator {
+                ExpressionOperator::Indexation(expression) => {
+                    value.compile_l(scope, function, true)?;
+                    expression.as_ref().unwrap().compile(scope, function)?;
+
+                    function.push(Instruction::SaveIndex);
+
+                    if !from_dot {
+                        function.push(Instruction::SaveReference);
+                    }
+                }
+                _ => todo!(),
+            },
+            x => panic!("invalid L-expression type {x:#?}"),
+        }
+
+        Ok(())
     }
 
     #[rustfmt::skip]
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
         match self {
             Expression::Value(value) => match value {
-                ExpressionValue::Path(path) => path.compile(scope, function)?,
+                ExpressionValue::Identifier(identifier) => {
+                    let value = scope.get_declaration(identifier.clone()).expect(&format!("no declaration for identifier {identifier}"));
+
+                    match value {
+                        Declaration::Definition(definition) => {
+                            function.push(Instruction::Load(definition.index.unwrap()))
+                        },
+                        _ => todo!()
+                    }
+                },
                 ExpressionValue::String(value) => {
                     function.push(Instruction::Push(Value::String(value.to_string())))
                 }
@@ -710,8 +948,8 @@ impl Expression {
                         Declaration::Structure(structure) => {
 
                             for field in structure.variable.keys().rev() {
-                                let assignment = value.list.get(field).unwrap();
-                                assignment.value.compile(scope, function)?;
+                                let value = value.list.get(field).unwrap();
+                                value.compile(scope, function)?;
                             }
 
                             function.push(Instruction::PushStructure(structure.clone()))
@@ -733,10 +971,25 @@ impl Expression {
                         x => panic!("declaration is not a structure: {x:?}")
                     }
                 }
+                ExpressionValue::Array(value) => {
+                    for l in value.list.iter().rev() {
+                        l.compile(scope, function)?;
+                    }
+
+                    function.push(Instruction::PushArray(value.list.len()))
+                }
                 _ => todo!(),
             },
             Expression::Operation(operator, a, b) => {
                 a.compile(scope, function)?;
+
+                if let ExpressionOperator::Dot = operator {
+                    let b = b.analyze_identifier()?;
+                    function.push(Instruction::LoadField(b.text));
+
+                    return Ok(());
+                }
+
                 b.compile(scope, function)?;
 
                 match operator {
@@ -753,6 +1006,77 @@ impl Expression {
                     ExpressionOperator::LTE      => function.push(Instruction::LTE),
                     ExpressionOperator::EqualNot => function.push(Instruction::EqualNot),
                     // TO-DO reference
+                    _ => todo!(),
+                }
+            }
+            Expression::OperationPrior(operator, value) => {
+                match operator {
+                    ExpressionOperator::Reference => {
+                        let identifier = value.analyze_identifier()?;
+
+                        let value = scope.get_declaration(identifier.clone()).expect(&format!("no declaration for identifier {identifier}"));
+
+                        match value {
+                            Declaration::Definition(definition) => {
+                                function.push(Instruction::PushReference(definition.index.unwrap()));
+                            },
+                            _ => todo!()
+                        }
+                    },
+                    ExpressionOperator::Subtract => {
+                        value.compile(scope, function)?;
+
+                        function.push(Instruction::Negate)
+                    }
+                    ExpressionOperator::Not => {
+                        value.compile(scope, function)?;
+
+                        function.push(Instruction::Not)
+                    }
+                    _ => todo!()
+                }
+            }
+            Expression::OperationAfter(value, operator) => {
+                let kind = value.analyze(scope)?;
+
+                match operator {
+                    ExpressionOperator::Invocation(list) => {
+                        match kind {
+                            ExpressionKind::Function(identifier) => {
+                                for argument in list.iter().rev() {
+                                    argument.compile(scope, function)?;
+                                }
+
+                                function.push(Instruction::Call(FunctionCall::Function(identifier.text), list.len()))
+                            },
+                            ExpressionKind::FunctionNative(identifier) => {
+                                for argument in list.iter().rev() {
+                                    argument.compile(scope, function)?;
+                                }
+
+                                function.push(Instruction::Call(FunctionCall::Function(identifier.text), list.len()))
+                            },
+                            _ => panic!("invalid value for invocation operator {value:?}")
+                        }
+                    },
+                    ExpressionOperator::Indexation(expression) => {
+                        value.compile(scope, function)?;
+                        expression.as_ref().unwrap().compile(scope, function)?;
+                        function.push(Instruction::LoadIndex)
+
+                        /*
+                        match value {
+                            ExpressionKind::FunctionNative(identifier) => {
+                                for argument in list.iter().rev() {
+                                    argument.compile(scope, function)?;
+                                }
+
+                                function.push(Instruction::Call(FunctionCall::Function(identifier.text), list.len()))
+                            },
+                            _ => panic!("invalid value for invocation operator {value:?}")
+                        }
+                        */
+                    },
                     _ => todo!(),
                 }
             }
@@ -790,7 +1114,6 @@ impl Definition {
 
             token_buffer.want(TokenKind::Definition)?;
             let value = Expression::parse_token(token_buffer, 0.0)?;
-
             token_buffer.want(TokenKind::ColonSemi)?;
 
             Ok(Self {
@@ -838,37 +1161,21 @@ impl Definition {
 #[derive(Debug, Clone)]
 pub struct Assignment {
     pub span: TokenSpan,
-    pub path: Path,
+    pub path: Expression,
     pub kind: Token,
     pub value: Expression,
 }
 
 impl Assignment {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+    pub fn parse_token(token_buffer: &mut TokenBuffer, path: Expression) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Assignment, |token_buffer| {
-            let path = Path::parse_token(token_buffer)?;
             let kind = token_buffer.want_definition()?;
             let value = Expression::parse_token(token_buffer, 0.0)?;
             token_buffer.want(TokenKind::ColonSemi)?;
 
             Ok(Self {
                 span: token_buffer.get_span(),
-                path,
-                kind,
-                value,
-            })
-        })
-    }
-
-    pub fn parse_token_loose(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.parse(ErrorHint::Assignment, |token_buffer| {
-            let path = Path::parse_token(token_buffer)?;
-            let kind = token_buffer.want_definition()?;
-            let value = Expression::parse_token(token_buffer, 0.0)?;
-
-            Ok(Self {
-                span: token_buffer.get_span(),
-                path,
+                path: path.clone(),
                 kind,
                 value,
             })
@@ -876,166 +1183,18 @@ impl Assignment {
     }
 
     pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
-        /*
-        if let Some(variable) = scope.get_declaration(self.path.clone()) {
-            match variable {
-                Declaration::Definition(_) => {
-                    Ok(())
-                    // TO-DO type check that whatever we're assigning to the
-                    // definition is valid.
-                }
-                _ => Err(Error::new_info(
-                    ErrorInfo::new_point(self.span.clone(), Some(self.path.point)),
-                    ErrorKind::InvalidAssignment(self.path.clone()),
-                    Some(ErrorHint::Assignment),
-                )),
-            }
-        } else {
-            Err(Error::new_info(
-                ErrorInfo::new_point(self.span.clone(), Some(self.path.point)),
-                ErrorKind::UnknownSymbol(self.path.clone()),
-                Some(ErrorHint::Assignment),
-            ))
-        }?;
-        */
-
         self.value.analyze(scope)?;
+
+        // TO-DO analyze if it's correct to load the value onto our path.
 
         Ok(())
     }
 
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
-        //self.value.compile(scope, function)?;
-        //function.push(Instruction::Save(self.name.text.clone()));
+        self.value.compile(scope, function)?;
+        self.path.compile_l(scope, function, false)?;
 
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Invocation {
-    pub span: TokenSpan,
-    pub name: Identifier,
-    pub list: Vec<Expression>,
-}
-
-impl Invocation {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.parse(ErrorHint::Invocation, |token_buffer| {
-            let name = token_buffer.want_identifier()?;
-            let mut list = Vec::new();
-
-            token_buffer.want(TokenKind::ParenthesisBegin)?;
-
-            while let Some(token) = token_buffer.peek() {
-                if token.class.kind() == TokenKind::ParenthesisClose {
-                    break;
-                }
-
-                list.push(Expression::parse_token(token_buffer, 0.0)?);
-
-                if let Some(token) = token_buffer.peek()
-                    && token.class.kind() == TokenKind::Comma
-                {
-                    token_buffer.next();
-                } else {
-                    break;
-                }
-            }
-
-            token_buffer.want(TokenKind::ParenthesisClose)?;
-
-            //token_buffer.want(TokenKind::ColonSemi)?;
-
-            Ok(Self {
-                span: token_buffer.get_span(),
-                name,
-                list,
-            })
-        })
-    }
-
-    pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
-        if let Some(declaration) = scope.get_declaration(self.name.clone()) {
-            match declaration {
-                Declaration::Function(function) => {
-                    if self.list.len() != function.enter.len() {
-                        panic!("analyze: incorrect argument count for function");
-                    }
-
-                    for (i, expression) in self.list.iter().enumerate() {
-                        let source = expression.analyze(scope)?;
-                        let target = &function.enter[i];
-                        let target = Variable::type_check(&target.span, &target.kind, scope)?;
-
-                        if source != target {
-                            return Err(Error::new_info(
-                                ErrorInfo::new_point(self.span.clone(), None),
-                                ErrorKind::IncorrectKind(target, source),
-                                None,
-                            ));
-                        }
-                    }
-
-                    if let Some(leave) = &function.leave {
-                        return Variable::type_check(&function.span, leave, scope);
-                    }
-
-                    Ok(ExpressionKind::Null)
-                }
-                Declaration::FunctionNative(function) => {
-                    //if self.list.len() != function.enter.len() {
-                    //    panic!("analyze: incorrect argument count for function native");
-                    //}
-
-                    // TO-DO type check and validate the function is receiving every argument
-                    for expression in &self.list {
-                        expression.analyze(scope)?;
-                    }
-
-                    Ok(function.leave.clone())
-                }
-                _ => Err(Error::new_info(
-                    ErrorInfo::new_token(self.span.clone(), None),
-                    ErrorKind::InvalidInvocation(self.name.clone()),
-                    Some(ErrorHint::Invocation),
-                )),
-            }
-        } else {
-            Err(Error::new_info(
-                ErrorInfo::new_token(self.span.clone(), None),
-                ErrorKind::UnknownSymbol(self.name.clone()),
-                Some(ErrorHint::Invocation),
-            ))
-        }
-    }
-
-    pub fn compile(&self, _: &Scope) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Indexation {
-    pub name: Identifier,
-    pub expression: Expression,
-}
-
-impl Indexation {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.parse(ErrorHint::Invocation, |token_buffer| {
-            let name = token_buffer.want_identifier()?;
-
-            token_buffer.want(TokenKind::SquareBegin)?;
-
-            let expression = Expression::parse_token(token_buffer, 0.0)?;
-
-            token_buffer.want(TokenKind::SquareClose)?;
-
-            //token_buffer.want(TokenKind::ColonSemi)?;
-
-            Ok(Self { name, expression })
-        })
     }
 }
 
@@ -1161,9 +1320,7 @@ impl Block {
                 name: variable.name.clone(),
                 kind_i: Some(variable.kind.clone()),
                 kind_e: Some(kind),
-                value: Expression::Value(ExpressionValue::Path(Path {
-                    list: vec![PathKind::Identifier(variable.name.clone())],
-                })),
+                value: Expression::Value(ExpressionValue::Identifier(variable.name.clone())),
                 index: Some(index),
             };
 
@@ -1483,6 +1640,29 @@ impl Variable {
         })
     }
 
+    fn type_check_spanless(name: &Identifier, scope: &Scope) -> Result<ExpressionKind, Error> {
+        Ok(match name.text.as_str() {
+            "String" => ExpressionKind::String,
+            "Integer" => ExpressionKind::Integer,
+            "Decimal" => ExpressionKind::Decimal,
+            "Boolean" => ExpressionKind::Boolean,
+            "Array" => ExpressionKind::Array,
+            _ => {
+                let definition = scope.get_declaration(name.clone()).unwrap();
+
+                match definition {
+                    Declaration::Structure(structure) => {
+                        ExpressionKind::Structure(structure.name.clone())
+                    }
+                    Declaration::Enumerate(enumerate) => {
+                        ExpressionKind::Enumerate(enumerate.name.clone())
+                    }
+                    _ => panic!("type_check: definition is not a structure or enumeration"),
+                }
+            }
+        })
+    }
+
     fn type_check(
         _: &TokenSpan,
         name: &Identifier,
@@ -1493,6 +1673,8 @@ impl Variable {
             "Integer" => ExpressionKind::Integer,
             "Decimal" => ExpressionKind::Decimal,
             "Boolean" => ExpressionKind::Boolean,
+            // TO-DO accept generic type
+            "Array" => ExpressionKind::Array,
             _ => {
                 let definition = scope.get_declaration(name.clone()).unwrap();
 
@@ -1546,7 +1728,7 @@ impl ArrayD {
 #[derive(Debug, Clone)]
 pub struct StructureD {
     pub name: Identifier,
-    pub list: HashMap<String, Assignment>,
+    pub list: HashMap<String, Expression>,
 }
 
 impl StructureD {
@@ -1559,18 +1741,11 @@ impl StructureD {
             token_buffer.want(TokenKind::CurlyBegin)?;
 
             Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
-                let assignment = Assignment::parse_token_loose(token_buffer)?;
+                let name = token_buffer.want_identifier()?.text;
+                token_buffer.want(TokenKind::Definition)?;
+                let value = Expression::parse_token(token_buffer, 0.0)?;
 
-                let name = assignment.path.list.first().unwrap();
-                let name = {
-                    if let PathKind::Identifier(identifier) = name {
-                        identifier.text.clone()
-                    } else {
-                        panic!("structure assignment: path is not an identifier")
-                    }
-                };
-
-                list.insert(name, assignment);
+                list.insert(name, value);
                 Ok(())
             })?;
 
@@ -1758,256 +1933,6 @@ impl Enumerate {
     pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
         for function in self.function.values_mut() {
             function.analyze(scope)?;
-        }
-
-        Ok(())
-    }
-}
-
-//================================================================
-
-#[derive(Debug, Clone)]
-pub enum PathKind {
-    Identifier(Identifier),
-    Invocation(Invocation),
-    Indexation(Indexation),
-}
-
-#[derive(Debug, Clone)]
-pub struct Path {
-    list: Vec<PathKind>,
-}
-
-impl Path {
-    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.parse(ErrorHint::Use, |token_buffer| {
-            let mut list = Vec::new();
-
-            while let Some(token) = token_buffer.peek() {
-                if token.class.kind() == TokenKind::Identifier {
-                    if let Some(token) = token_buffer.peek_ahead(1) {
-                        if token.class.kind() == TokenKind::ParenthesisBegin {
-                            list.push(PathKind::Invocation(Invocation::parse_token(token_buffer)?));
-                            continue;
-                        } else if token.class.kind() == TokenKind::SquareBegin {
-                            list.push(PathKind::Indexation(Indexation::parse_token(token_buffer)?));
-                            continue;
-                        }
-                    }
-
-                    list.push(PathKind::Identifier(token_buffer.want_identifier()?))
-                } else if token.class.kind() == TokenKind::Dot {
-                    token_buffer.want(TokenKind::Dot)?;
-                } else {
-                    break;
-                }
-            }
-
-            Ok(Self { list })
-        })
-    }
-
-    pub fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
-        let mut active = None;
-        let mut result = ExpressionKind::Null;
-
-        for path in &self.list {
-            if let Some(d_active) = &active {
-                match d_active {
-                    Declaration::Structure(structure) => match path {
-                        PathKind::Identifier(identifier) => {
-                            let field = structure.variable.get(&identifier.text).unwrap();
-
-                            let kind =
-                                Variable::type_check(&field.span, &field.kind.clone(), scope)?;
-
-                            match kind {
-                                ExpressionKind::Structure(structure) => {
-                                    active = Some(
-                                        scope.get_declaration(structure.clone()).unwrap().clone(),
-                                    );
-                                    result = ExpressionKind::Structure(structure);
-                                }
-                                x => {
-                                    result = x;
-                                }
-                            }
-                        }
-                        PathKind::Invocation(invocation) => {
-                            let field = structure.function.get(&invocation.name.text).unwrap();
-
-                            if let Some(leave) = &field.leave {
-                                let kind = Variable::type_check(&field.span, leave, scope)?;
-
-                                match kind {
-                                    ExpressionKind::Structure(structure) => {
-                                        active = Some(
-                                            scope
-                                                .get_declaration(structure.clone())
-                                                .unwrap()
-                                                .clone(),
-                                        );
-                                        result = ExpressionKind::Structure(structure);
-                                    }
-                                    x => {
-                                        result = x;
-                                    }
-                                }
-                            }
-                        }
-                        _ => panic!("analyze: invalid path: {path:#?}"),
-                    },
-                    x => panic!("analyze: invalid active: {x:#?}"),
-                }
-            } else {
-                match path {
-                    PathKind::Identifier(identifier) => {
-                        if let Some(value) = scope.get_declaration(identifier.clone()) {
-                            match value {
-                                Declaration::Definition(definition) => {
-                                    let kind = definition.kind_e.clone().expect(&format!(
-                                        "no kind_e for def {}",
-                                        definition.name.text
-                                    ));
-
-                                    // TO-DO this will crash without explicit typing.
-                                    //let kind = Variable::type_check(
-                                    //    &definition.span,
-                                    //    &definition.kind.clone().unwrap(),
-                                    //    scope,
-                                    //)?;
-
-                                    match kind {
-                                        ExpressionKind::Structure(structure) => {
-                                            active = Some(
-                                                scope
-                                                    .get_declaration(structure.clone())
-                                                    .unwrap()
-                                                    .clone(),
-                                            );
-                                            result = ExpressionKind::Structure(structure);
-                                        }
-                                        x => {
-                                            result = x;
-                                        }
-                                    }
-                                }
-                                Declaration::Structure(_) => {
-                                    active = Some(value.clone());
-                                }
-                                _ => todo!(),
-                            }
-                        } else {
-                            panic!("analyze: unknown symbol: {}", identifier.text);
-                        }
-                    }
-                    PathKind::Invocation(invocation) => result = invocation.analyze(scope)?,
-                    _ => todo!(),
-                };
-            }
-        }
-
-        Ok(result)
-    }
-
-    pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
-        let mut active = None;
-
-        for path in &self.list {
-            if let Some(d_active) = &active {
-                match d_active {
-                    Declaration::Structure(structure) => match path {
-                        PathKind::Identifier(identifier) => {
-                            function.push(Instruction::LoadField(identifier.text.to_string()));
-
-                            let field = structure.variable.get(&identifier.text).unwrap();
-
-                            let kind =
-                                Variable::type_check(&field.span, &field.kind.clone(), scope)?;
-
-                            if let ExpressionKind::Structure(structure) = kind {
-                                active =
-                                    Some(scope.get_declaration(structure.clone()).unwrap().clone());
-                            }
-                        }
-                        PathKind::Invocation(invocation) => {
-                            for expression in invocation.list.iter().rev() {
-                                expression.compile(scope, function)?;
-                            }
-
-                            function.push(Instruction::Call(
-                                FunctionCall::FunctionStructure(
-                                    structure.name.text.clone(),
-                                    invocation.name.text.clone(),
-                                ),
-                                invocation.list.len(),
-                            ));
-
-                            let field = structure.function.get(&invocation.name.text).unwrap();
-
-                            if let Some(leave) = &field.leave {
-                                let kind = Variable::type_check(&field.span, leave, scope)?;
-
-                                match kind {
-                                    ExpressionKind::Structure(structure) => {
-                                        active = Some(
-                                            scope
-                                                .get_declaration(structure.clone())
-                                                .unwrap()
-                                                .clone(),
-                                        );
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        _ => panic!("compile: invalid path: {path:#?}"),
-                    },
-                    x => panic!("compile: invalid active: {x:#?}"),
-                }
-            } else {
-                match path {
-                    PathKind::Identifier(identifier) => {
-                        if let Some(value) = scope.get_declaration(identifier.clone()) {
-                            match value {
-                                Declaration::Definition(definition) => {
-                                    function.push(Instruction::Load(definition.index.unwrap()));
-
-                                    let kind = definition.value.analyze(scope)?;
-
-                                    if let ExpressionKind::Structure(structure) = kind {
-                                        active = Some(
-                                            scope
-                                                .get_declaration(structure.clone())
-                                                .unwrap()
-                                                .clone(),
-                                        );
-                                    }
-                                }
-                                Declaration::Structure(_) => {
-                                    active = Some(value.clone());
-                                }
-                                _ => todo!(),
-                            }
-                        } else {
-                            panic!("compile: unknown symbol: {}", identifier.text);
-                        }
-                    }
-                    PathKind::Invocation(invocation) => {
-                        for expression in invocation.list.iter().rev() {
-                            expression.compile(scope, function)?;
-                        }
-
-                        function.push(Instruction::Call(
-                            FunctionCall::Function(invocation.name.text.to_string()),
-                            invocation.list.len(),
-                        ));
-
-                        //active = invocation.analyze(scope)?;
-                    }
-                    _ => todo!(),
-                };
-            }
         }
 
         Ok(())

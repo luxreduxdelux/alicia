@@ -211,7 +211,7 @@ impl Display for TokenClass {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Self::Identifier(value)  => formatter.write_str(&format!("Identifier(\"{}\")", value.text)),
+            Self::Identifier(value)  => formatter.write_str(&value.text),
             Self::String(text)       => formatter.write_str(&format!("String(\"{text}\")")),
             Self::Integer(value)      => formatter.write_str(&format!("Integer(\"{value}\")")),
             Self::Decimal(value)      => formatter.write_str(&format!("Decimal(\"{value}\")")),

@@ -332,7 +332,10 @@ impl TokenBuffer {
                 | TokenKind::GTE
                 | TokenKind::LTE
                 | TokenKind::EqualNot
-                | TokenKind::Ampersand => {
+                | TokenKind::Dot
+                | TokenKind::Ampersand
+                | TokenKind::ParenthesisBegin
+                | TokenKind::SquareBegin => {
                     return Ok(next.clone());
                 }
                 _ => {
@@ -369,7 +372,10 @@ impl TokenBuffer {
                 | TokenKind::GTE
                 | TokenKind::LTE
                 | TokenKind::EqualNot
-                | TokenKind::Ampersand => return Some(next),
+                | TokenKind::Dot
+                | TokenKind::Ampersand
+                | TokenKind::ParenthesisBegin
+                | TokenKind::SquareBegin => return Some(next),
                 _ => return None,
             }
         }
