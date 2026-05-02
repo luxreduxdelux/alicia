@@ -86,6 +86,10 @@ function level_new() : Level {
 
 #================================================================
 
+function draw_player(point: Vector, angle: Vector) {
+    draw_texture((point.x) * 128.0, (point.y) * 128.0, angle.x, angle.y, 255, 255, 255, 255);
+}
+
 function main(): Boolean {
     let player := player_new();
     let level  := level_new();
@@ -109,7 +113,7 @@ function main(): Boolean {
                 let current_style := to_integer(l_current[2]);
 
                 if (current_style != 2) {
-                    draw_texture((current_point.x) * 128.0, (current_point.y) * 128.0, current_which.x, current_which.y);
+                    draw_texture((current_point.x) * 128.0, (current_point.y) * 128.0, current_which.x, current_which.y, 255, 255, 255, 255);
                 }
 
                 l_i := l_i + 1;
@@ -125,7 +129,7 @@ function main(): Boolean {
                 let current_style := to_integer(l_current[2]);
 
                 if (current_style = 2) {
-                    draw_texture((current_point.x) * 128.0, (current_point.y) * 128.0, current_which.x, current_which.y);
+                    draw_texture((current_point.x) * 128.0, (current_point.y) * 128.0, current_which.x, current_which.y, 255, 255, 255, 255);
                 }
 
                 l_i := l_i + 1;
@@ -201,12 +205,14 @@ function main(): Boolean {
             }
 
             # draw player
-            draw_texture((player.point.x) * 128.0, (player.point.y) * 128.0, player.angle.x, player.angle.y);
+            draw_player(player.point, player.angle);
 
         draw_close();
 
         # restart Alicia on Q key press
         if (is_key_press(81)) { return true; }
+        # compile Alicia on E key press
+        if (is_key_press(69)) { compile(); }
     }
 
     return false;

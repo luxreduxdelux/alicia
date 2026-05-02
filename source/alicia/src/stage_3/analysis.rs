@@ -1,7 +1,7 @@
 use crate::{
     helper::error::*,
     stage_2::{construct::ExpressionKind, scope::*},
-    stage_4::machine::{Argument, Value},
+    stage_4::machine::{Argument, Machine, Value},
 };
 
 pub struct Analysis {}
@@ -82,11 +82,11 @@ impl Analysis {
         Ok(result)
     }
 
-    fn test(_: Argument) -> Option<Value> {
+    fn test(machine: &mut Machine, _: Argument) -> Option<Value> {
         Some(Value::Boolean(true))
     }
 
-    fn print(argument: Argument) -> Option<Value> {
+    fn print(machine: &mut Machine, argument: Argument) -> Option<Value> {
         println!("{}", Self::format_internal(argument).unwrap());
 
         None

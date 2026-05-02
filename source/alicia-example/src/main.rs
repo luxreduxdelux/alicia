@@ -1,4 +1,5 @@
 use alicia::stage_4::machine::Function;
+use alicia::stage_4::machine::Machine;
 use alicia::{prelude::*, stage_4::machine::Value};
 
 //================================================================
@@ -34,11 +35,11 @@ impl Game {
 
 static GAME: OnceLock<Game> = OnceLock::new();
 
-fn window_should_close(_: Argument) -> Option<Value> {
+fn window_should_close(machine: &mut Machine, _: Argument) -> Option<Value> {
     unsafe { Some(Value::Boolean(!ffi::WindowShouldClose())) }
 }
 
-fn draw_begin(_: Argument) -> Option<Value> {
+fn draw_begin(machine: &mut Machine, _: Argument) -> Option<Value> {
     unsafe {
         ffi::BeginDrawing();
         ffi::ClearBackground(Color::WHITE.into());
@@ -47,7 +48,7 @@ fn draw_begin(_: Argument) -> Option<Value> {
     None
 }
 
-fn draw_close(_: Argument) -> Option<Value> {
+fn draw_close(machine: &mut Machine, _: Argument) -> Option<Value> {
     unsafe {
         ffi::EndDrawing();
     }
@@ -55,7 +56,7 @@ fn draw_close(_: Argument) -> Option<Value> {
     None
 }
 
-fn draw_text(mut argument: Argument) -> Option<Value> {
+fn draw_text(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
     let text = argument.next().unwrap().as_string();
     let text = c_string(&text);
 
@@ -66,11 +67,15 @@ fn draw_text(mut argument: Argument) -> Option<Value> {
     None
 }
 
-fn draw_texture(mut argument: Argument) -> Option<Value> {
+fn draw_texture(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
     let p_x = argument.next().unwrap().as_decimal() as f32;
     let p_y = argument.next().unwrap().as_decimal() as f32;
     let s_x = (argument.next().unwrap().as_decimal() as f32) * 64.0;
     let s_y = (argument.next().unwrap().as_decimal() as f32) * 64.0;
+    let c_r = (argument.next().unwrap().as_integer() as u8);
+    let c_g = (argument.next().unwrap().as_integer() as u8);
+    let c_b = (argument.next().unwrap().as_integer() as u8);
+    let c_a = (argument.next().unwrap().as_integer() as u8);
 
     let game = GAME.get().unwrap();
 
@@ -81,14 +86,14 @@ fn draw_texture(mut argument: Argument) -> Option<Value> {
             Rectangle::new(p_x, p_y, 128.0, 128.0).into(),
             Vector2::default().into(),
             0.0,
-            Color::WHITE.into(),
+            Color::new(c_r, c_g, c_b, c_a).into(),
         );
     }
 
     None
 }
 
-fn to_integer(mut argument: Argument) -> Option<Value> {
+fn to_integer(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
     let number = argument.next().unwrap();
 
     match number {
@@ -98,14 +103,24 @@ fn to_integer(mut argument: Argument) -> Option<Value> {
     }
 }
 
-fn is_key_press(mut argument: Argument) -> Option<Value> {
+fn is_key_press(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
     let key = argument.next().unwrap().as_integer() as i32;
 
     unsafe { Some(Value::Boolean(ffi::IsKeyPressed(key))) }
 }
 
-fn new_instance() -> Result<(Instance, Function), Error> {
-    let instance = Builder::default()
+fn compile(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
+    println!("compile");
+
+    let builder = new_builder().unwrap();
+    let scope = builder.build_scope().unwrap();
+    machine.compile(&scope).unwrap();
+
+    None
+}
+
+fn new_builder() -> Result<Builder, Error> {
+    Builder::default()
         .add_function(FunctionNative::new(
             "window_should_close".to_string(),
             self::window_should_close,
@@ -138,6 +153,10 @@ fn new_instance() -> Result<(Instance, Function), Error> {
                 ExpressionKind::Decimal,
                 ExpressionKind::Decimal,
                 ExpressionKind::Decimal,
+                ExpressionKind::Integer,
+                ExpressionKind::Integer,
+                ExpressionKind::Integer,
+                ExpressionKind::Integer,
             ]),
             ExpressionKind::Null,
         ))?
@@ -153,21 +172,28 @@ fn new_instance() -> Result<(Instance, Function), Error> {
             NativeArgument::Constant(vec![ExpressionKind::Decimal]),
             ExpressionKind::Integer,
         ))?
-        .with_file("src/game.alicia".to_string())?;
-
-    let instance = instance.build()?;
-
-    if let Some(function) = instance.machine.function.get("main").cloned()
-        && let FunctionKind::Function(function) = function
-    {
-        Ok((instance, function))
-    } else {
-        panic!("no main function")
-    }
+        .add_function(FunctionNative::new(
+            "compile".to_string(),
+            self::compile,
+            NativeArgument::Constant(vec![]),
+            ExpressionKind::Null,
+        ))?
+        .with_file("src/game.alicia".to_string())
 }
 
 fn run() -> Result<(), Error> {
-    let (mut instance, mut function) = new_instance()?;
+    let builder = new_builder()?;
+    let mut instance = builder.build()?;
+
+    let mut function = if let Some(function) = instance.machine.function.get("main").cloned()
+        && let FunctionKind::Function(function) = function
+    {
+        function
+    } else {
+        panic!("no main function")
+    };
+
+    //================================================================
 
     let (mut handle, _thread) = raylib::init()
         .size(7 * 128, 5 * 128)
@@ -180,13 +206,24 @@ fn run() -> Result<(), Error> {
 
     GAME.set(Game::new()).unwrap();
 
+    //================================================================
+
     loop {
         let new = function.execute(&mut instance.machine, vec![]).unwrap();
 
         if let Value::Boolean(new) = new {
             if new {
                 println!("restart");
-                (instance, function) = new_instance()?;
+                let builder = new_builder()?;
+                instance = builder.build()?;
+
+                function = if let Some(function) = instance.machine.function.get("main").cloned()
+                    && let FunctionKind::Function(function) = function
+                {
+                    function
+                } else {
+                    panic!("no main function")
+                };
             } else {
                 break;
             }

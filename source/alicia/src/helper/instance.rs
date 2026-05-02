@@ -50,4 +50,26 @@ impl Builder {
             machine: Machine::new(&scope)?,
         })
     }
+
+    pub fn build_scope(self) -> Result<Scope, Error> {
+        let source = self.source.unwrap();
+
+        //================================================================
+
+        let mut scope = Scope::new(None);
+        scope.parse_buffer(TokenBuffer::new(source)?)?;
+
+        for function in self.function {
+            scope.symbol.insert(
+                function.name.to_string(),
+                Declaration::FunctionNative(function),
+            );
+        }
+
+        let scope = Analysis::analyze_tree(scope)?;
+
+        //================================================================
+
+        Ok(scope)
+    }
 }

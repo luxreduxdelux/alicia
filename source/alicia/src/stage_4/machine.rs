@@ -39,10 +39,18 @@ pub struct Machine {
 
 impl Machine {
     pub fn new(scope: &Scope) -> Result<Self, Error> {
-        let mut function = HashMap::default();
-        let mut structure = HashMap::default();
-        let mut enumerate = HashMap::default();
+        let mut machine = Self {
+            function: HashMap::default(),
+            structure: HashMap::default(),
+            enumerate: HashMap::default(),
+        };
 
+        machine.compile(scope)?;
+
+        Ok(machine)
+    }
+
+    pub fn compile(&mut self, scope: &Scope) -> Result<(), Error> {
         for value in scope.symbol.clone().values() {
             match value {
                 Declaration::Function(f) => {
@@ -54,10 +62,12 @@ impl Machine {
                         //}
                     }
 
-                    function.insert(f.name.text.clone(), FunctionKind::Function(compile));
+                    self.function
+                        .insert(f.name.text.clone(), FunctionKind::Function(compile));
                 }
                 Declaration::FunctionNative(f) => {
-                    function.insert(f.name.clone(), FunctionKind::FunctionNative(f.clone()));
+                    self.function
+                        .insert(f.name.clone(), FunctionKind::FunctionNative(f.clone()));
                 }
                 Declaration::Structure(s) => {
                     let mut map = StructureMap::default();
@@ -68,7 +78,7 @@ impl Machine {
                         map.function.insert(name.to_string(), compile);
                     }
 
-                    structure.insert(s.name.text.clone(), map);
+                    self.structure.insert(s.name.text.clone(), map);
                 }
                 Declaration::Enumerate(s) => {
                     let mut map = EnumerateMap::default();
@@ -79,17 +89,13 @@ impl Machine {
                         map.function.insert(name.to_string(), compile);
                     }
 
-                    enumerate.insert(s.name.text.clone(), map);
+                    self.enumerate.insert(s.name.text.clone(), map);
                 }
                 _ => {}
             }
         }
 
-        Ok(Self {
-            function,
-            structure,
-            enumerate,
-        })
+        Ok(())
     }
 
     fn get_function(&self, name: &str) -> FunctionKind {
@@ -689,7 +695,7 @@ impl Function {
                                 function.execute(machine, argument.buffer)
                             }
                             FunctionKind::FunctionNative(function_native) => {
-                                (function_native.call)(argument)
+                                (function_native.call)(machine, argument)
                             }
                         };
 
