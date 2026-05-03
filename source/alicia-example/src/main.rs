@@ -59,9 +59,11 @@ fn draw_close(machine: &mut Machine, _: Argument) -> Option<Value> {
 fn draw_text(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
     let text = argument.next().unwrap().as_string();
     let text = c_string(&text);
+    let p_x = argument.next().unwrap().as_integer() as i32;
+    let p_y = argument.next().unwrap().as_integer() as i32;
 
     unsafe {
-        ffi::DrawText(text.as_ptr(), 8, 8, 32, Color::BLACK.into());
+        ffi::DrawText(text.as_ptr(), p_x, p_y, 64, Color::WHITE.into());
     }
 
     None
@@ -109,12 +111,20 @@ fn is_key_press(machine: &mut Machine, mut argument: Argument) -> Option<Value> 
     unsafe { Some(Value::Boolean(ffi::IsKeyPressed(key))) }
 }
 
-fn compile(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
+fn compile_aux(machine: &mut Machine) -> Result<(), Error> {
+    let builder = new_builder()?;
+    let scope = builder.build_scope()?;
+    machine.compile(&scope)?;
+
+    Ok(())
+}
+
+fn compile(machine: &mut Machine, _: Argument) -> Option<Value> {
     println!("compile");
 
-    let builder = new_builder().unwrap();
-    let scope = builder.build_scope().unwrap();
-    machine.compile(&scope).unwrap();
+    if let Err(error) = compile_aux(machine) {
+        println!("recompilation error: {error}");
+    }
 
     None
 }
@@ -142,7 +152,11 @@ fn new_builder() -> Result<Builder, Error> {
         .add_function(FunctionNative::new(
             "draw_text".to_string(),
             self::draw_text,
-            NativeArgument::Constant(vec![ExpressionKind::String]),
+            NativeArgument::Constant(vec![
+                ExpressionKind::String,
+                ExpressionKind::Integer,
+                ExpressionKind::Integer,
+            ]),
             ExpressionKind::Null,
         ))?
         .add_function(FunctionNative::new(

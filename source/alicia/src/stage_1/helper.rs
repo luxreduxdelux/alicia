@@ -13,11 +13,9 @@ pub struct Source {
 }
 
 impl Source {
-    /*
     pub fn new_data(path: String, data: String) -> Self {
         Self { path, data }
     }
-    */
 
     pub fn new_file(path: &str) -> Result<Self, Error> {
         if let Ok(data) = std::fs::read_to_string(path) {

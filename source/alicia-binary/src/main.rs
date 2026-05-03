@@ -1,3 +1,8 @@
+mod server;
+
+//================================================================
+
+use crate::server::server_main;
 use alicia::prelude::*;
 use thiserror::Error;
 
@@ -5,6 +10,7 @@ use thiserror::Error;
 
 enum Command {
     Help,
+    Server,
     Run(Run),
 }
 
@@ -18,6 +24,7 @@ impl Command {
         while let Some(argument) = list.next() {
             match argument.as_str() {
                 "--help" => return Ok(Self::Help),
+                "--server" => return Ok(Self::Server),
                 "--path" => {
                     if let Some(value) = list.next() {
                         path = Some(value);
@@ -48,7 +55,8 @@ impl Command {
             }
         }
 
-        Ok(Self::Run(Run { path, main }))
+        Ok(Self::Server)
+        //Ok(Self::Run(Run { path, main }))
     }
 }
 
@@ -101,7 +109,8 @@ fn alicia_run(path: &str, main: &str) -> Result<(), CommandError> {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let command = Command::parse();
 
     match command {
@@ -111,6 +120,9 @@ fn main() {
                 println!("--help: Show this help message.");
                 println!("--path {{path}}: Load a given source file.");
                 println!("--main {{name}}: Load a given \"main\" function name.");
+            }
+            Command::Server => {
+                server_main().await;
             }
             Command::Run(run) => {
                 let path = run.path.unwrap_or("src/test.alicia".to_string());

@@ -16,6 +16,26 @@ use std::fmt::Display;
 
 //================================================================
 
+/*
+iteration compilation:
+    let a := [1, 2, 3];
+    let i := 0;
+    let l := a.length();
+
+    loop (i < l) {
+        i := i + 1;
+        let x := a[i - 1];
+    }
+
+    <->
+
+    let a := [1, 2, 3];
+
+    loop (x := a) {
+        print("{}", x);
+    }
+*/
+
 #[derive(Debug, Clone)]
 pub enum Statement {
     Function(Function),

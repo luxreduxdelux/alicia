@@ -17,6 +17,11 @@ pub struct Builder {
 }
 
 impl Builder {
+    pub fn with_data(mut self, path: String, data: String) -> Result<Self, Error> {
+        self.source = Some(Source::new_data(path, data));
+        Ok(self)
+    }
+
     pub fn with_file(mut self, path: String) -> Result<Self, Error> {
         self.source = Some(Source::new_file(&path)?);
         Ok(self)

@@ -87,10 +87,10 @@ function level_new() : Level {
 #================================================================
 
 function draw_player(point: Vector, angle: Vector) {
-    draw_texture((point.x) * 128.0, (point.y) * 128.0, angle.x, angle.y, 255, 255, 255, 255);
+    draw_texture((point.x) * 128.0, (point.y) * 128.0, angle.x, angle.y, 0, 255, 0, 255);
 }
 
-function main(): Boolean {
+function main() : Boolean {
     let player := player_new();
     let level  := level_new();
 
