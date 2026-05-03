@@ -98,6 +98,11 @@ fn draw_texture(machine: &mut Machine, mut argument: Argument) -> Option<Value> 
 }
 
 #[function]
+fn test_sum(a: i64, b: i64) -> f64 {
+    Some((a + b).into())
+}
+
+#[function]
 fn draw_texture_macro(
     p_x: f32,
     p_y: f32,
@@ -107,7 +112,7 @@ fn draw_texture_macro(
     c_g: i64,
     c_b: i64,
     c_a: i64,
-) -> () {
+) {
     let game = GAME.get().unwrap();
 
     unsafe {
@@ -159,6 +164,8 @@ fn compile(machine: &mut Machine, _: Argument) -> Option<Value> {
 }
 
 fn new_builder() -> Result<Builder, Error> {
+    //println!("{:?}", alicia_meta_test_sum);
+
     Builder::default()
         .add_function(FunctionNative::new(
             "window_should_close".to_string(),
@@ -199,7 +206,8 @@ fn new_builder() -> Result<Builder, Error> {
             ]),
             ValueType::Null,
         ))?
-        .add_function(builder_function!(draw_texture_macro))?
+        .add_function(builder_function!(test_sum))?
+        //.add_function(builder_function!(draw_texture_macro))?
         .add_function(FunctionNative::new(
             "is_key_press".to_string(),
             self::is_key_press,

@@ -78,6 +78,10 @@ impl Scope {
         }
     }
 
+    pub fn get_active_source(&self) -> Source {
+        self.source.last().unwrap().clone()
+    }
+
     pub fn parse_buffer(&mut self, mut token_buffer: TokenBuffer) -> Result<(), Error> {
         self.source.push(token_buffer.source.clone());
 

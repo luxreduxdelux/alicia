@@ -34,7 +34,7 @@ impl Error {
         }
     }
 
-    fn slice_list(list: &Vec<(String, usize)>) -> Vec<(String, usize)> {
+    fn slice_list(list: &Vec<String>) -> Vec<String> {
         if list.len() >= 6 {
             let mut slice = Vec::new();
 
@@ -56,13 +56,13 @@ impl Error {
         }
     }
 
-    fn text_box(file: &str, token_span: &TokenSpan, point: Option<Point>) -> String {
+    fn text_box(file: &str, token_span: &TokenSpan, point: Point, source: &Source) -> String {
         let mut text_box = String::default();
-        let line_size = token_span
-            .list
+        let source = token_span.get_source(source);
+        let line_size = source
             .iter()
-            .max_by(|x, y| (x.1 + 1).cmp(&(y.1 + 1)));
-        let line_size = (line_size.unwrap().1 + 1).to_string();
+            .max_by(|x, y| (x.len() + 1).cmp(&(y.len() + 1)));
+        let line_size = (line_size.unwrap().len() + 1).to_string();
         let line_size = line_size.len() + 2;
 
         text_box.push('╭');
@@ -76,11 +76,11 @@ impl Error {
         text_box.push('│');
         text_box.push('\n');
 
-        let slice = Self::slice_list(&token_span.list);
+        //let slice = Self::slice_list(&source);
 
-        for (text, line) in &slice {
-            let text = if slice.len() == 1 { text.trim() } else { text };
-            let line = line + 1;
+        for (line, text) in source.iter().enumerate() {
+            let text = if source.len() == 1 { text.trim() } else { text };
+            let line = line + (point.y - 1);
             let line_text = line.to_string();
 
             text_box.push('│');
@@ -94,10 +94,8 @@ impl Error {
             text_box.push_str(text);
             text_box.push('\n');
 
-            if let Some(point) = point {
-                if line == point.y + 1 {
-                    break;
-                }
+            if line == point.y + 1 {
+                break;
             }
         }
 
@@ -105,10 +103,8 @@ impl Error {
         text_box.push_str(&' '.to_string().repeat(line_size));
         text_box.push('│');
 
-        if let Some(point) = point {
-            text_box.push_str(&' '.to_string().repeat(point.x));
-            text_box.push('─');
-        }
+        text_box.push_str(&' '.to_string().repeat(point.x));
+        text_box.push('─');
 
         text_box.push('\n');
 
@@ -124,11 +120,14 @@ impl Display for Error {
         let text = if let Some(info) = &self.info {
             if let Some(point) = &info.point {
                 Self::text_box(
-                    &format!("{}:{}:{}", info.token_span.path, point.y + 1, point.x),
+                    &format!("{}:{}:{}", info.source.path, point.y + 1, point.x),
                     &info.token_span,
-                    Some(*point),
+                    point.clone(),
+                    &info.source,
                 )
             } else {
+                "".to_string()
+                /*
                 Self::text_box(
                     &format!(
                         "{}:{}",
@@ -138,6 +137,7 @@ impl Display for Error {
                     &info.token_span,
                     None,
                 )
+                */
             }
         } else {
             "".to_string()
@@ -159,21 +159,30 @@ impl Display for Error {
 pub struct ErrorInfo {
     token_span: TokenSpan,
     point: Option<Point>,
+    source: Source,
 }
 
 impl ErrorInfo {
-    pub fn new_token(token_span: TokenSpan, token: Option<Token>) -> Self {
+    pub fn new_token(token_span: TokenSpan, token: Option<Token>, source: Source) -> Self {
         let point = if let Some(token) = token {
             Some(token.point)
         } else {
             None
         };
 
-        Self { token_span, point }
+        Self {
+            token_span,
+            point,
+            source,
+        }
     }
 
-    pub fn new_point(token_span: TokenSpan, point: Option<Point>) -> Self {
-        Self { token_span, point }
+    pub fn new_point(token_span: TokenSpan, point: Option<Point>, source: Source) -> Self {
+        Self {
+            token_span,
+            point,
+            source,
+        }
     }
 }
 

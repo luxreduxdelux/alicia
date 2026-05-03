@@ -60,34 +60,33 @@ impl LineBuffer {
 
 #[derive(Debug, Clone)]
 pub struct TokenSpan {
-    pub list: Vec<(String, usize)>,
-    pub path: String,
-    pub line: Option<Point>,
+    pub begin: Option<Point>,
+    pub close: Option<Point>,
 }
 
 impl TokenSpan {
-    fn new(path: String) -> Self {
+    fn new() -> Self {
         Self {
-            list: Vec::default(),
-            path,
-            line: None,
+            begin: None,
+            close: None,
         }
     }
 
-    fn push(&mut self, source: &Source, token: &Token) {
-        if let Some(line) = &mut self.line {
-            if line.y != token.point.y {
-                let line = source.data.lines().nth(token.point.y).unwrap();
-
-                self.list.push((line.to_string(), token.point.y));
-                self.line = Some(token.point);
-            }
+    fn add_point(&mut self, point: Point) {
+        if self.begin.is_none() {
+            self.begin = Some(point);
+            self.close = Some(point);
         } else {
-            let line = source.data.lines().nth(token.point.y).unwrap();
-
-            self.list.push((line.to_string(), token.point.y));
-            self.line = Some(token.point);
+            self.close = Some(point);
         }
+    }
+
+    pub fn get_source(&self, source: &Source) -> Vec<String> {
+        let begin = self.begin.unwrap();
+        let close = self.close.unwrap();
+        let line: Vec<String> = source.data.lines().map(|x| x.to_string()).collect();
+
+        line[begin.y..close.y + 1].to_vec()
     }
 }
 
@@ -95,7 +94,7 @@ pub struct TokenBuffer {
     pub source: Source,
     buffer: Vec<Token>,
     cursor: usize,
-    span: TokenSpan,
+    span: Vec<TokenSpan>,
     hint: Option<ErrorHint>,
 }
 
@@ -110,7 +109,7 @@ impl TokenBuffer {
         }
 
         Ok(Self {
-            span: TokenSpan::new(source.path.clone()),
+            span: Vec::default(),
             source,
             buffer,
             cursor: usize::default(),
@@ -122,8 +121,16 @@ impl TokenBuffer {
         println!("{:#?}", &self.buffer[self.cursor..self.buffer.len()]);
     }
 
-    pub fn get_span(&self) -> TokenSpan {
-        self.span.clone()
+    pub fn push_span(&mut self) {
+        self.span.push(TokenSpan::new());
+    }
+
+    pub fn get_span(&mut self) -> TokenSpan {
+        self.span.pop().unwrap()
+    }
+
+    pub fn get_span_mutable(&mut self) -> &mut TokenSpan {
+        self.span.last_mut().unwrap()
     }
 
     pub fn next(&mut self) -> Option<Token> {
@@ -148,15 +155,7 @@ impl TokenBuffer {
         hint: ErrorHint,
         mut call: F,
     ) -> Result<T, Error> {
-        if hint == ErrorHint::Function
-            || hint == ErrorHint::Structure
-            || hint == ErrorHint::Enumerate
-            || hint == ErrorHint::Definition
-            || hint == ErrorHint::Assignment
-        {
-            self.span = TokenSpan::new(self.source.path.clone());
-        }
-
+        self.push_span();
         self.hint = Some(hint);
 
         let result = call(self)?;
@@ -167,15 +166,15 @@ impl TokenBuffer {
     }
 
     pub fn want(&mut self, kind: TokenKind) -> Result<Token, Error> {
-        if let Some(next) = self.buffer.get(self.cursor) {
-            self.span.push(&self.source, next);
+        if let Some(next) = self.buffer.get(self.cursor).cloned() {
+            self.get_span_mutable().add_point(next.point);
             self.cursor += 1;
 
             if next.class.kind() == kind {
                 return Ok(next.clone());
             } else {
                 return Err(Error::new_info(
-                    ErrorInfo::new_token(self.get_span(), Some(next.clone())),
+                    ErrorInfo::new_token(self.get_span(), Some(next.clone()), self.source.clone()),
                     ErrorKind::IncorrectTokenKind(kind, next.clone()),
                     self.hint,
                 ));
@@ -183,7 +182,7 @@ impl TokenBuffer {
         }
 
         Err(Error::new_info(
-            ErrorInfo::new_token(self.get_span(), self.previous()),
+            ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             ErrorKind::ExpectingKind(kind),
             self.hint,
         ))
@@ -216,15 +215,19 @@ impl TokenBuffer {
     }
 
     pub fn want_identifier(&mut self) -> Result<Identifier, Error> {
-        if let Some(next) = self.buffer.get(self.cursor) {
-            self.span.push(&self.source, next);
+        if let Some(next) = self.buffer.get(self.cursor).cloned() {
+            self.get_span_mutable().add_point(next.point);
             self.cursor += 1;
 
             match &next.class {
                 TokenClass::Identifier(identifier) => return Ok(identifier.clone()),
                 _ => {
                     return Err(Error::new_info(
-                        ErrorInfo::new_token(self.get_span(), Some(next.clone())),
+                        ErrorInfo::new_token(
+                            self.get_span(),
+                            Some(next.clone()),
+                            self.source.clone(),
+                        ),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
                     ));
@@ -233,15 +236,15 @@ impl TokenBuffer {
         }
 
         Err(Error::new_info(
-            ErrorInfo::new_token(self.get_span(), self.previous()),
+            ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
         ))
     }
 
     pub fn want_definition(&mut self) -> Result<Token, Error> {
-        if let Some(next) = self.buffer.get(self.cursor) {
-            self.span.push(&self.source, next);
+        if let Some(next) = self.buffer.get(self.cursor).cloned() {
+            self.get_span_mutable().add_point(next.point);
             self.cursor += 1;
 
             match next.class.kind() {
@@ -252,7 +255,11 @@ impl TokenBuffer {
                 | TokenKind::DefinitionDivide => return Ok(next.clone()),
                 _ => {
                     return Err(Error::new_info(
-                        ErrorInfo::new_token(self.get_span(), Some(next.clone())),
+                        ErrorInfo::new_token(
+                            self.get_span(),
+                            Some(next.clone()),
+                            self.source.clone(),
+                        ),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
                     ));
@@ -261,15 +268,15 @@ impl TokenBuffer {
         }
 
         Err(Error::new_info(
-            ErrorInfo::new_token(self.get_span(), self.previous()),
+            ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
         ))
     }
 
     pub fn want_value(&mut self) -> Result<Token, Error> {
-        if let Some(next) = self.buffer.get(self.cursor) {
-            self.span.push(&self.source, &next);
+        if let Some(next) = self.buffer.get(self.cursor).cloned() {
+            self.get_span_mutable().add_point(next.point);
             self.cursor += 1;
 
             match next.class.kind() {
@@ -281,7 +288,11 @@ impl TokenBuffer {
                 | TokenKind::SquareBegin => return Ok(next.clone()),
                 _ => {
                     return Err(Error::new_info(
-                        ErrorInfo::new_token(self.get_span(), Some(next.clone())),
+                        ErrorInfo::new_token(
+                            self.get_span(),
+                            Some(next.clone()),
+                            self.source.clone(),
+                        ),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
                     ));
@@ -290,7 +301,7 @@ impl TokenBuffer {
         }
 
         Err(Error::new_info(
-            ErrorInfo::new_token(self.get_span(), self.previous()),
+            ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             // TO-DO expecting value
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
@@ -314,8 +325,8 @@ impl TokenBuffer {
     }
 
     pub fn want_operator(&mut self) -> Result<Token, Error> {
-        if let Some(next) = self.buffer.get(self.cursor) {
-            self.span.push(&self.source, next);
+        if let Some(next) = self.buffer.get(self.cursor).cloned() {
+            self.get_span_mutable().add_point(next.point);
             self.cursor += 1;
 
             match next.class.kind() {
@@ -340,7 +351,11 @@ impl TokenBuffer {
                 }
                 _ => {
                     return Err(Error::new_info(
-                        ErrorInfo::new_token(self.get_span(), Some(next.clone())),
+                        ErrorInfo::new_token(
+                            self.get_span(),
+                            Some(next.clone()),
+                            self.source.clone(),
+                        ),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
                     ));
@@ -349,7 +364,7 @@ impl TokenBuffer {
         }
 
         Err(Error::new_info(
-            ErrorInfo::new_token(self.get_span(), self.previous()),
+            ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             // TO-DO expecting operator
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
@@ -383,7 +398,7 @@ impl TokenBuffer {
         None
     }
 
-    pub fn get_error_info(&self, token: Option<Token>) -> ErrorInfo {
-        ErrorInfo::new_token(self.get_span(), token)
+    pub fn get_error_info(&mut self, token: Option<Token>) -> ErrorInfo {
+        ErrorInfo::new_token(self.get_span(), token, self.source.clone())
     }
 }

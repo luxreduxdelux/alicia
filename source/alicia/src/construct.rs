@@ -862,7 +862,6 @@ impl Expression {
                                         }
                                     }
 
-
                                     Ok(function.leave.clone().into())
                                 } else {
                                     panic!("invalid native function")
@@ -1163,7 +1162,7 @@ impl Definition {
 
             if source != target {
                 return Err(Error::new_info(
-                    ErrorInfo::new_point(self.span.clone(), None),
+                    ErrorInfo::new_point(self.span.clone(), None, scope.get_active_source()),
                     ErrorKind::IncorrectKind(target, source),
                     None,
                 ));
@@ -1594,7 +1593,7 @@ impl Function {
 
         if source != target {
             return Err(Error::new_info(
-                ErrorInfo::new_point(self.span.clone(), None),
+                ErrorInfo::new_point(self.span.clone(), None, scope.get_active_source()),
                 ErrorKind::IncorrectKind(target, source),
                 None,
             ));
