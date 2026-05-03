@@ -1,12 +1,12 @@
-use crate::helper::error::*;
-use crate::stage_1::buffer::*;
-use crate::stage_1::helper::*;
-use crate::stage_1::token::*;
-use crate::stage_2::scope::*;
-use crate::stage_4::machine::Function as MFunction;
-use crate::stage_4::machine::FunctionCall;
-use crate::stage_4::machine::Instruction;
-use crate::stage_4::machine::Value;
+use crate::buffer::*;
+use crate::error::*;
+use crate::helper::*;
+use crate::machine::Function as MFunction;
+use crate::machine::FunctionCall;
+use crate::machine::Instruction;
+use crate::machine::Value;
+use crate::scope::*;
+use crate::token::*;
 
 //================================================================
 

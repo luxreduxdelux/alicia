@@ -1,8 +1,8 @@
-use crate::helper::error::Error;
-use crate::stage_1::buffer::TokenBuffer;
-use crate::stage_2::scope::*;
-use crate::stage_3::analysis::Analysis;
-use crate::{stage_1::helper::Source, stage_4::machine::Machine};
+use crate::analysis::Analysis;
+use crate::buffer::TokenBuffer;
+use crate::error::Error;
+use crate::scope::*;
+use crate::{helper::Source, machine::Machine};
 
 //================================================================
 

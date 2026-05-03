@@ -1,7 +1,7 @@
-use crate::stage_1::buffer::*;
-use crate::stage_1::helper::*;
-use crate::stage_1::token::*;
-use crate::stage_2::construct::ExpressionKind;
+use crate::buffer::*;
+use crate::construct::ExpressionKind;
+use crate::helper::*;
+use crate::token::*;
 
 //================================================================
 

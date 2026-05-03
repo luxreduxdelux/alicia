@@ -1,9 +1,9 @@
-use crate::helper::error::Error;
-use crate::stage_2::construct::Enumerate as EnumerateD;
-use crate::stage_2::construct::Structure as StructureD;
-use crate::stage_2::scope::Declaration;
-use crate::stage_2::scope::FunctionNative;
-use crate::stage_2::scope::Scope;
+use crate::construct::Enumerate as EnumerateD;
+use crate::construct::Structure as StructureD;
+use crate::error::Error;
+use crate::scope::Declaration;
+use crate::scope::FunctionNative;
+use crate::scope::Scope;
 
 //================================================================
 
@@ -407,6 +407,20 @@ impl Value {
             Self::Array(_)     => ValueKind::Array,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum ValueType {
+    Null,
+    String,
+    Integer,
+    Decimal,
+    Boolean,
+    Structure,
+    Enumerate,
+    Reference,
+    Array,
+    Table,
 }
 
 #[derive(Debug, Clone)]

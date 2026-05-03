@@ -1,12 +1,29 @@
 use crate::{
-    helper::error::*,
-    stage_2::{construct::ExpressionKind, scope::*},
-    stage_4::machine::{Argument, Machine, Value},
+    construct::ExpressionKind,
+    error::*,
+    machine::{Argument, Machine, Value, ValueKind},
+    scope::*,
 };
+use alicia_macro::function;
+use alicia_macro::function_add;
+
+struct FunctionMeta {
+    enter: NativeArgument,
+    leave: ValueType,
+}
+
+impl FunctionMeta {
+    const fn new(enter: NativeArgument, leave: ValueType) {}
+}
 
 pub struct Analysis {}
 
 impl Analysis {
+    #[function]
+    fn test(a: String, b: i64, c: f64) -> Option<Value> {
+        None
+    }
+
     fn format_internal(mut argument: Argument) -> Result<String, Error> {
         let string = argument.next().unwrap().as_string();
         let mut string = string.chars();
@@ -82,10 +99,6 @@ impl Analysis {
         Ok(result)
     }
 
-    fn test(machine: &mut Machine, _: Argument) -> Option<Value> {
-        Some(Value::Boolean(true))
-    }
-
     fn print(machine: &mut Machine, argument: Argument) -> Option<Value> {
         println!("{}", Self::format_internal(argument).unwrap());
 
@@ -106,6 +119,8 @@ impl Analysis {
             enter: NativeArgument::Variable,
             leave: ExpressionKind::Boolean,
         }));
+
+        //function_add!(scope.clone(), "print", Self::print);
 
         let mut scope_clone = scope.clone();
 

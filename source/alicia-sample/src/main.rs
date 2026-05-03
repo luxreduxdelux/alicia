@@ -1,6 +1,6 @@
-use alicia::stage_4::machine::Function;
-use alicia::stage_4::machine::Machine;
-use alicia::{prelude::*, stage_4::machine::Value};
+use alicia::machine::Function;
+use alicia::machine::Machine;
+use alicia::{machine::Value, prelude::*};
 
 //================================================================
 

@@ -1,6 +1,6 @@
-pub use crate::helper::{error::Error, instance::*};
-pub use crate::stage_2::{
+pub use crate::machine::{Argument, FunctionKind};
+pub use crate::{
     construct::ExpressionKind,
     scope::{FunctionNative, NativeArgument, Scope},
 };
-pub use crate::stage_4::machine::{Argument, FunctionKind};
+pub use crate::{error::Error, instance::*};

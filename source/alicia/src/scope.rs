@@ -1,11 +1,11 @@
-use crate::helper::error::*;
-use crate::stage_1::buffer::*;
-use crate::stage_1::helper::*;
-use crate::stage_1::token::*;
-use crate::stage_2::construct::*;
-use crate::stage_4::machine::Argument;
-use crate::stage_4::machine::Machine;
-use crate::stage_4::machine::Value;
+use crate::buffer::*;
+use crate::construct::*;
+use crate::error::*;
+use crate::helper::*;
+use crate::machine::Argument;
+use crate::machine::Machine;
+use crate::machine::Value;
+use crate::token::*;
 use std::fmt::Debug;
 
 //================================================================
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub enum NativeArgument {
     Variable,
-    Constant(Vec<ExpressionKind>),
+    Constant(&'static [ExpressionKind]),
 }
 
 #[derive(Debug, Clone)]

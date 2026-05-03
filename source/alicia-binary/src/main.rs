@@ -55,8 +55,7 @@ impl Command {
             }
         }
 
-        Ok(Self::Server)
-        //Ok(Self::Run(Run { path, main }))
+        Ok(Self::Run(Run { path, main }))
     }
 }
 
