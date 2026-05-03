@@ -1,29 +1,26 @@
 use crate::{
-    construct::ExpressionKind,
     error::*,
-    machine::{Argument, Machine, Value, ValueKind},
+    machine::{Argument, Machine, Value, ValueType},
     scope::*,
 };
 use alicia_macro::function;
 use alicia_macro::function_add;
 
-struct FunctionMeta {
-    enter: NativeArgument,
-    leave: ValueType,
+#[derive(Debug)]
+pub struct FunctionMeta {
+    pub enter: NativeArgument,
+    pub leave: ValueType,
 }
 
 impl FunctionMeta {
-    const fn new(enter: NativeArgument, leave: ValueType) {}
+    pub const fn new(enter: NativeArgument, leave: ValueType) -> Self {
+        Self { enter, leave }
+    }
 }
 
 pub struct Analysis {}
 
 impl Analysis {
-    #[function]
-    fn test(a: String, b: i64, c: f64) -> Option<Value> {
-        None
-    }
-
     fn format_internal(mut argument: Argument) -> Result<String, Error> {
         let string = argument.next().unwrap().as_string();
         let mut string = string.chars();
@@ -105,22 +102,46 @@ impl Analysis {
         None
     }
 
+    #[function]
+    fn test(a: String, b: i64, c: f64) -> () {
+        println!("a is {a}");
+        println!("b is {b}");
+        println!("c is {c}");
+
+        Some(1.into())
+    }
+
+    /*
+    fn test_real(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
+        let a = argument.next().unwrap().as_string();
+        let b = argument.next().unwrap().as_integer();
+        let c = argument.next().unwrap().as_decimal();
+
+        println!("a is {a}");
+        println!("b is {b}");
+        println!("c is {c}");
+
+        Some(1.into())
+    }
+    */
+
     #[rustfmt::skip]
     pub fn analyze_tree(mut scope: Scope) -> Result<Scope, Error> {
         scope.symbol.insert("print".to_string(), Declaration::FunctionNative(FunctionNative {
             name: "print".to_string(),
             call: Self::print,
             enter: NativeArgument::Variable,
-            leave: ExpressionKind::Null,
+            leave: ValueType::Null,
         }));
+        /*
         scope.symbol.insert("test".to_string(), Declaration::FunctionNative(FunctionNative {
             name: "test".to_string(),
             call: Self::test,
-            enter: NativeArgument::Variable,
-            leave: ExpressionKind::Boolean,
+            enter: Self::alicia_meta_test.enter,
+            leave: Self::alicia_meta_test.leave,
         }));
-
-        //function_add!(scope.clone(), "print", Self::print);
+        */
+        function_add!(scope, test);
 
         let mut scope_clone = scope.clone();
 

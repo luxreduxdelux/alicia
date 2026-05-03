@@ -44,6 +44,7 @@ name = "alicia-sample"
 version = "0.1.0"
 dependencies = [
  "alicia",
+ "alicia-macro",
  "raylib",
 ]
 

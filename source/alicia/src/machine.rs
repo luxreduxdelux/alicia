@@ -1,6 +1,7 @@
 use crate::construct::Enumerate as EnumerateD;
 use crate::construct::Structure as StructureD;
 use crate::error::Error;
+use crate::prelude::ExpressionKind;
 use crate::scope::Declaration;
 use crate::scope::FunctionNative;
 use crate::scope::Scope;
@@ -270,6 +271,42 @@ pub enum Value {
     Array(Vec<ValuePointer>),
 }
 
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
+}
+
+impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+        Self::Integer(value as i64)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Self::Integer(value)
+    }
+}
+
+impl From<f32> for Value {
+    fn from(value: f32) -> Self {
+        Self::Decimal(value as f64)
+    }
+}
+
+impl From<f64> for Value {
+    fn from(value: f64) -> Self {
+        Self::Decimal(value)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Self::Boolean(value)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Structure {
     pub kind: String,
@@ -421,6 +458,21 @@ pub enum ValueType {
     Reference,
     Array,
     Table,
+}
+
+#[rustfmt::skip]
+impl Into<ExpressionKind> for ValueType {
+    fn into(self) -> ExpressionKind {
+        match self {
+            ValueType::Null      => ExpressionKind::Null,
+            ValueType::String    => ExpressionKind::String,
+            ValueType::Integer   => ExpressionKind::Integer,
+            ValueType::Decimal   => ExpressionKind::Decimal,
+            ValueType::Boolean   => ExpressionKind::Boolean,
+            ValueType::Array     => ExpressionKind::Array,
+            _ => panic!("cannot convert VT to EK")
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

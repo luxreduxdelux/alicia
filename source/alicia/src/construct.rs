@@ -854,8 +854,16 @@ impl Expression {
                                 // TO-DO check if the function arguments are correct or not.
                                 let function = scope.get_declaration(identifier).unwrap();
 
+
                                 if let Declaration::FunctionNative(function) = function {
-                                    Ok(function.leave.clone())
+                                    if let NativeArgument::Constant(function_list) = function.enter {
+                                        if function_list.len() != list.len() {
+                                            panic!("native function: argument count mis-match");
+                                        }
+                                    }
+
+
+                                    Ok(function.leave.clone().into())
                                 } else {
                                     panic!("invalid native function")
                                 }

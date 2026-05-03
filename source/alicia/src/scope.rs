@@ -5,6 +5,7 @@ use crate::helper::*;
 use crate::machine::Argument;
 use crate::machine::Machine;
 use crate::machine::Value;
+use crate::machine::ValueType;
 use crate::token::*;
 use std::fmt::Debug;
 
@@ -17,7 +18,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub enum NativeArgument {
     Variable,
-    Constant(&'static [ExpressionKind]),
+    Constant(&'static [ValueType]),
 }
 
 #[derive(Debug, Clone)]
@@ -25,7 +26,7 @@ pub struct FunctionNative {
     pub name: String,
     pub call: fn(&mut Machine, Argument) -> Option<Value>,
     pub enter: NativeArgument,
-    pub leave: ExpressionKind,
+    pub leave: ValueType,
 }
 
 impl FunctionNative {
@@ -33,7 +34,7 @@ impl FunctionNative {
         name: String,
         call: fn(&mut Machine, Argument) -> Option<Value>,
         enter: NativeArgument,
-        leave: ExpressionKind,
+        leave: ValueType,
     ) -> Self {
         Self {
             name,

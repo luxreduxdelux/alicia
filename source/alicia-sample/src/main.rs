@@ -1,6 +1,8 @@
-use alicia::machine::Function;
 use alicia::machine::Machine;
+use alicia::machine::ValueType;
 use alicia::{machine::Value, prelude::*};
+use alicia_macro::builder_function;
+use alicia_macro::function;
 
 //================================================================
 
@@ -72,23 +74,50 @@ fn draw_text(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
 fn draw_texture(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
     let p_x = argument.next().unwrap().as_decimal() as f32;
     let p_y = argument.next().unwrap().as_decimal() as f32;
-    let s_x = (argument.next().unwrap().as_decimal() as f32) * 64.0;
-    let s_y = (argument.next().unwrap().as_decimal() as f32) * 64.0;
-    let c_r = (argument.next().unwrap().as_integer() as u8);
-    let c_g = (argument.next().unwrap().as_integer() as u8);
-    let c_b = (argument.next().unwrap().as_integer() as u8);
-    let c_a = (argument.next().unwrap().as_integer() as u8);
+    let s_x = (argument.next().unwrap().as_decimal() as f32);
+    let s_y = (argument.next().unwrap().as_decimal() as f32);
+    let c_r = (argument.next().unwrap().as_integer());
+    let c_g = (argument.next().unwrap().as_integer());
+    let c_b = (argument.next().unwrap().as_integer());
+    let c_a = (argument.next().unwrap().as_integer());
 
     let game = GAME.get().unwrap();
 
     unsafe {
         ffi::DrawTexturePro(
             game.texture,
-            Rectangle::new(s_x, s_y, 64.0, 64.0).into(),
+            Rectangle::new(s_x * 64.0, s_y * 64.0, 64.0, 64.0).into(),
             Rectangle::new(p_x, p_y, 128.0, 128.0).into(),
             Vector2::default().into(),
             0.0,
-            Color::new(c_r, c_g, c_b, c_a).into(),
+            Color::new(c_r as u8, c_g as u8, c_b as u8, c_a as u8).into(),
+        );
+    }
+
+    None
+}
+
+#[function]
+fn draw_texture_macro(
+    p_x: f32,
+    p_y: f32,
+    s_x: f32,
+    s_y: f32,
+    c_r: i64,
+    c_g: i64,
+    c_b: i64,
+    c_a: i64,
+) -> () {
+    let game = GAME.get().unwrap();
+
+    unsafe {
+        ffi::DrawTexturePro(
+            game.texture,
+            Rectangle::new(s_x * 64.0, s_y * 64.0, 64.0, 64.0).into(),
+            Rectangle::new(p_x, p_y, 128.0, 128.0).into(),
+            Vector2::default().into(),
+            0.0,
+            Color::new(c_r as u8, c_g as u8, c_b as u8, c_a as u8).into(),
         );
     }
 
@@ -134,63 +163,60 @@ fn new_builder() -> Result<Builder, Error> {
         .add_function(FunctionNative::new(
             "window_should_close".to_string(),
             self::window_should_close,
-            NativeArgument::Constant(vec![]),
-            ExpressionKind::Boolean,
+            NativeArgument::Constant(&[]),
+            ValueType::Boolean,
         ))?
         .add_function(FunctionNative::new(
             "draw_begin".to_string(),
             self::draw_begin,
-            NativeArgument::Constant(vec![]),
-            ExpressionKind::Null,
+            NativeArgument::Constant(&[]),
+            ValueType::Null,
         ))?
         .add_function(FunctionNative::new(
             "draw_close".to_string(),
             self::draw_close,
-            NativeArgument::Constant(vec![]),
-            ExpressionKind::Null,
+            NativeArgument::Constant(&[]),
+            ValueType::Null,
         ))?
         .add_function(FunctionNative::new(
             "draw_text".to_string(),
             self::draw_text,
-            NativeArgument::Constant(vec![
-                ExpressionKind::String,
-                ExpressionKind::Integer,
-                ExpressionKind::Integer,
-            ]),
-            ExpressionKind::Null,
+            NativeArgument::Constant(&[ValueType::String, ValueType::Integer, ValueType::Integer]),
+            ValueType::Null,
         ))?
         .add_function(FunctionNative::new(
             "draw_texture".to_string(),
             self::draw_texture,
-            NativeArgument::Constant(vec![
-                ExpressionKind::Decimal,
-                ExpressionKind::Decimal,
-                ExpressionKind::Decimal,
-                ExpressionKind::Decimal,
-                ExpressionKind::Integer,
-                ExpressionKind::Integer,
-                ExpressionKind::Integer,
-                ExpressionKind::Integer,
+            NativeArgument::Constant(&[
+                ValueType::Decimal,
+                ValueType::Decimal,
+                ValueType::Decimal,
+                ValueType::Decimal,
+                ValueType::Integer,
+                ValueType::Integer,
+                ValueType::Integer,
+                ValueType::Integer,
             ]),
-            ExpressionKind::Null,
+            ValueType::Null,
         ))?
+        .add_function(builder_function!(draw_texture_macro))?
         .add_function(FunctionNative::new(
             "is_key_press".to_string(),
             self::is_key_press,
-            NativeArgument::Constant(vec![ExpressionKind::Integer]),
-            ExpressionKind::Boolean,
+            NativeArgument::Constant(&[ValueType::Integer]),
+            ValueType::Boolean,
         ))?
         .add_function(FunctionNative::new(
             "to_integer".to_string(),
             self::to_integer,
-            NativeArgument::Constant(vec![ExpressionKind::Decimal]),
-            ExpressionKind::Integer,
+            NativeArgument::Constant(&[ValueType::Decimal]),
+            ValueType::Integer,
         ))?
         .add_function(FunctionNative::new(
             "compile".to_string(),
             self::compile,
-            NativeArgument::Constant(vec![]),
-            ExpressionKind::Null,
+            NativeArgument::Constant(&[]),
+            ValueType::Null,
         ))?
         .with_file("src/game.alicia".to_string())
 }
