@@ -464,12 +464,11 @@ pub enum ValueType {
 impl Into<ExpressionKind> for ValueType {
     fn into(self) -> ExpressionKind {
         match self {
-            ValueType::Null      => ExpressionKind::Null,
-            ValueType::String    => ExpressionKind::String,
-            ValueType::Integer   => ExpressionKind::Integer,
-            ValueType::Decimal   => ExpressionKind::Decimal,
-            ValueType::Boolean   => ExpressionKind::Boolean,
-            ValueType::Array     => ExpressionKind::Array,
+            ValueType::Null        => ExpressionKind::Null,
+            ValueType::String      => ExpressionKind::String,
+            ValueType::Integer     => ExpressionKind::Integer,
+            ValueType::Decimal     => ExpressionKind::Decimal,
+            ValueType::Boolean     => ExpressionKind::Boolean,
             _ => panic!("cannot convert VT to EK")
         }
     }
