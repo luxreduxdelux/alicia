@@ -114,11 +114,11 @@ impl Statement {
             TokenClass::Return        => Ok(Self::Return(Return::parse_token(token_buffer)?)),
             TokenClass::Identifier(_) => Ok(Self::parse_identifier(token_buffer)?),
             TokenClass::CurlyBegin    => Ok(Self::Block(Block::parse_token(token_buffer)?)),
-            _ => Err(Error::new_info(
+            _ => Error::new_info(
                 token_buffer.get_error_info(Some(token.clone())),
                 ErrorKind::UnknownToken(token),
                 Some(ErrorHint::Function),
-            )),
+            ),
         }
     }
 }
@@ -718,25 +718,35 @@ impl Expression {
         }
     }
 
-    #[rustfmt::skip]
-    pub fn analyze(&self, scope: &Scope, infer: Option<ExpressionKind>) -> Result<ExpressionKind, Error> {
+    pub fn analyze(
+        &self,
+        scope: &Scope,
+        infer: Option<ExpressionKind>,
+    ) -> Result<ExpressionKind, Error> {
         match self {
             Expression::Value(value) => match value {
                 ExpressionValue::Identifier(identifier) => {
-                    let value = scope.get_declaration(identifier.clone()).expect(&format!("no declaration for identifier {identifier}"));
+                    let value = scope
+                        .get_declaration(identifier.clone())
+                        .expect(&format!("no declaration for identifier {identifier}"));
 
                     match value {
                         Declaration::Function(function) => {
                             Ok(ExpressionKind::Function(function.name.clone()))
-                        },
+                        }
                         Declaration::FunctionNative(function) => {
                             // TO-DO FNative's name should already be an Identifier...
-                            Ok(ExpressionKind::FunctionNative(Identifier::from_string(function.name.clone(), Point::default()).unwrap()))
-                        },
-                        Declaration::Definition(definition) => definition.value.analyze(scope, infer),
-                        _ => todo!()
+                            Ok(ExpressionKind::FunctionNative(
+                                Identifier::from_string(function.name.clone(), Point::default())
+                                    .unwrap(),
+                            ))
+                        }
+                        Declaration::Definition(definition) => {
+                            definition.value.analyze(scope, infer)
+                        }
+                        _ => todo!(),
                     }
-                },
+                }
                 // TO-DO don't I need to analyze structure & enumerate?
                 _ => value.kind(scope, infer),
             },
@@ -757,10 +767,10 @@ impl Expression {
                                 } else {
                                     panic!("dot operator: a is not a structure")
                                 }
-                            },
-                            _ => panic!("dot operator: a is not a structure {a:?}")
+                            }
+                            _ => panic!("dot operator: a is not a structure {a:?}"),
                         }
-                    },
+                    }
                     _ => {}
                 }
 
@@ -778,29 +788,29 @@ impl Expression {
 
                 if a.is_number() {
                     match operator {
-                        ExpressionOperator::Add      => Ok(a),
+                        ExpressionOperator::Add => Ok(a),
                         ExpressionOperator::Subtract => Ok(a),
                         ExpressionOperator::Multiply => Ok(a),
-                        ExpressionOperator::Divide   => Ok(a),
-                        ExpressionOperator::GT       => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::LT       => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::Equal    => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::GTE      => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::LTE      => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::Divide => Ok(a),
+                        ExpressionOperator::GT => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::LT => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::GTE => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::LTE => Ok(ExpressionKind::Boolean),
                         ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
                         _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
                     }
                 } else if a == ExpressionKind::Boolean {
                     match operator {
-                        ExpressionOperator::And      => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::Or       => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::Equal    => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::And => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::Or => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
                         ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
                         _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
                     }
                 } else {
                     match operator {
-                        ExpressionOperator::Equal    => Ok(ExpressionKind::Boolean),
+                        ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
                         ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
                         _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
                     }
@@ -812,46 +822,85 @@ impl Expression {
                 if value.is_number() {
                     match operator {
                         ExpressionOperator::Subtract => Ok(value),
-                        _ => panic!("unsupported operator {operator:?} for value of type {value:?}"),
+                        _ => {
+                            panic!("unsupported operator {operator:?} for value of type {value:?}")
+                        }
                     }
                 } else if value == ExpressionKind::Boolean {
                     match operator {
                         ExpressionOperator::Not => Ok(ExpressionKind::Boolean),
-                        _ => panic!("unsupported operator {operator:?} for value of type {value:?}"),
+                        _ => {
+                            panic!("unsupported operator {operator:?} for value of type {value:?}")
+                        }
                     }
                 } else {
                     panic!("unsupported operator {operator:?} for value of type {value:?}")
                 }
-
             }
             Expression::OperationAfter(value, operator) => {
-                let value = value.analyze(scope, infer)?;
+                let value = value.analyze(scope, infer.clone())?;
 
                 match operator {
                     ExpressionOperator::Invocation(list) => {
                         match value {
                             ExpressionKind::Function(identifier) => {
-                                // TO-DO check if the function arguments are correct or not.
-                                let function = scope.get_declaration(identifier).unwrap();
+                                let function = scope.get_function(identifier.clone()).unwrap();
+                                let enter_a = function.enter.len();
+                                let enter_b = list.len();
 
-                                if let Declaration::Function(function) = function {
-                                    if let Some(leave) = &function.leave {
-                                        leave.type_check(scope)
-                                    } else {
-                                        Ok(ExpressionKind::Null)
-                                    }
-                                } else {
-                                    panic!("invalid native function")
+                                if enter_a != enter_b {
+                                    return Error::new_kind(
+                                        ErrorKind::InvalidInvocationArgumentLength(
+                                            identifier, enter_b, enter_a,
+                                        ),
+                                        None,
+                                    );
                                 }
-                            },
+
+                                for (i, parameter) in function.enter.iter().enumerate() {
+                                    let source = list[i].analyze(scope, infer.clone())?;
+                                    let target = parameter.analyze(scope)?;
+
+                                    if source != target {
+                                        panic!(
+                                            "function: argument type mis-match ({source:?} != {target:?})"
+                                        );
+                                    }
+                                }
+
+                                if let Some(leave) = &function.leave {
+                                    leave.type_check(scope)
+                                } else {
+                                    Ok(ExpressionKind::Null)
+                                }
+                            }
                             ExpressionKind::FunctionNative(identifier) => {
                                 // TO-DO check if the function arguments are correct or not.
-                                let function = scope.get_declaration(identifier).unwrap();
+                                let function = scope.get_declaration(identifier.clone()).unwrap();
 
                                 if let Declaration::FunctionNative(function) = function {
-                                    if let NativeArgument::Constant(function_list) = function.enter {
+                                    if let NativeArgument::Constant(function_list) = function.enter
+                                    {
+                                        let enter_a = function_list.len();
+                                        let enter_b = list.len();
+
                                         if function_list.len() != list.len() {
-                                            panic!("native function: argument count mis-match");
+                                            return Error::new_kind(
+                                                ErrorKind::InvalidInvocationArgumentLength(
+                                                    identifier, enter_b, enter_a,
+                                                ),
+                                                None,
+                                            );
+                                        }
+
+                                        for (i, target) in function_list.iter().enumerate() {
+                                            let source = list[i].analyze(scope, infer.clone())?;
+
+                                            if source != target.clone().into() {
+                                                panic!(
+                                                    "native function: argument type mis-match ({source:?} != {target:?})"
+                                                );
+                                            }
                                         }
                                     }
 
@@ -859,18 +908,17 @@ impl Expression {
                                 } else {
                                     panic!("invalid native function")
                                 }
-                            },
-                            _ => panic!("invalid value for invocation operator {value:?}")
+                            }
+                            _ => panic!("invalid value for invocation operator {value:?}"),
                         }
-                    },
+                    }
                     ExpressionOperator::Indexation(expression) => {
                         // TO-DO check if expression is an integer type, return the index type (a is array, a[0] is integer)
                         Ok(value)
-                    },
+                    }
                     _ => todo!(),
                 }
             }
-
         }
     }
 
@@ -1160,11 +1208,11 @@ impl Definition {
             let target = kind.type_check(scope)?;
 
             if source != target {
-                return Err(Error::new_info(
+                return Error::new_info(
                     ErrorInfo::new_point(self.span.clone(), None, scope.get_active_source()),
                     ErrorKind::IncorrectKind(target, source),
                     None,
-                ));
+                );
             }
         }
 
@@ -1394,19 +1442,13 @@ impl Block {
                 Statement::Skip => {
                     if !iteration {
                         // TO-DO use actual span data.
-                        return Err(Error::new_kind(
-                            ErrorKind::InvalidSkip,
-                            Some(ErrorHint::Iteration),
-                        ));
+                        return Error::new_kind(ErrorKind::InvalidSkip, Some(ErrorHint::Iteration));
                     }
                 }
                 Statement::Exit => {
                     if !iteration {
                         // TO-DO use actual span data.
-                        return Err(Error::new_kind(
-                            ErrorKind::InvalidExit,
-                            Some(ErrorHint::Iteration),
-                        ));
+                        return Error::new_kind(ErrorKind::InvalidExit, Some(ErrorHint::Iteration));
                     }
                 }
                 Statement::Return(r) => {
@@ -1595,11 +1637,11 @@ impl Function {
         let source = flow.kind(false);
 
         if source != target {
-            return Err(Error::new_info(
+            return Error::new_info(
                 ErrorInfo::new_point(self.span.clone(), None, scope.get_active_source()),
                 ErrorKind::IncorrectKind(target, source),
                 None,
-            ));
+            );
         }
 
         Ok(())
@@ -1627,8 +1669,7 @@ pub struct Kind {
 
 impl Kind {
     fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        // TO-DO use ErrorHint::Kind
-        token_buffer.parse(ErrorHint::Variable, |token_buffer| {
+        token_buffer.parse(ErrorHint::Kind, |token_buffer| {
             let reference = if token_buffer.want_peek(TokenKind::Ampersand) {
                 token_buffer.want(TokenKind::Ampersand)?;
                 true
@@ -1743,8 +1784,7 @@ pub struct ArrayD {
 
 impl ArrayD {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        // TO-DO use ErrorHint::Array
-        token_buffer.parse(ErrorHint::Structure, |token_buffer| {
+        token_buffer.parse(ErrorHint::Array, |token_buffer| {
             let mut list = Vec::new();
 
             token_buffer.want(TokenKind::SquareBegin)?;
@@ -1802,7 +1842,7 @@ pub struct StructureD {
 
 impl StructureD {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.parse(ErrorHint::Structure, |token_buffer| {
+        token_buffer.parse(ErrorHint::StructureD, |token_buffer| {
             let mut list = HashMap::new();
 
             let name = token_buffer.want_identifier()?;
@@ -1910,7 +1950,7 @@ pub struct EnumerateD {
 
 impl EnumerateD {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
-        token_buffer.parse(ErrorHint::Structure, |token_buffer| {
+        token_buffer.parse(ErrorHint::EnumerateD, |token_buffer| {
             let mut list = Vec::new();
 
             let name = token_buffer.want_identifier()?;

@@ -104,7 +104,7 @@ impl TokenBuffer {
 
         for (i, line) in source.data.lines().enumerate() {
             if let Err(kind) = Token::parse_line(line, i, &mut buffer) {
-                return Err(Error::new_kind(kind, None));
+                return Error::new_kind(kind, None);
             }
         }
 
@@ -173,19 +173,19 @@ impl TokenBuffer {
             if next.class.kind() == kind {
                 return Ok(next.clone());
             } else {
-                return Err(Error::new_info(
+                return Error::new_info(
                     ErrorInfo::new_token(self.get_span(), Some(next.clone()), self.source.clone()),
                     ErrorKind::IncorrectTokenKind(kind, next.clone()),
                     self.hint,
-                ));
+                );
             }
         }
 
-        Err(Error::new_info(
+        Error::new_info(
             ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             ErrorKind::ExpectingKind(kind),
             self.hint,
-        ))
+        )
     }
 
     pub fn want_peek(&mut self, kind: TokenKind) -> bool {
@@ -222,7 +222,7 @@ impl TokenBuffer {
             match &next.class {
                 TokenClass::Identifier(identifier) => return Ok(identifier.clone()),
                 _ => {
-                    return Err(Error::new_info(
+                    return Error::new_info(
                         ErrorInfo::new_token(
                             self.get_span(),
                             Some(next.clone()),
@@ -230,16 +230,16 @@ impl TokenBuffer {
                         ),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
-                    ));
+                    );
                 }
             }
         }
 
-        Err(Error::new_info(
+        Error::new_info(
             ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
-        ))
+        )
     }
 
     pub fn want_definition(&mut self) -> Result<Token, Error> {
@@ -254,7 +254,7 @@ impl TokenBuffer {
                 | TokenKind::DefinitionMultiply
                 | TokenKind::DefinitionDivide => return Ok(next.clone()),
                 _ => {
-                    return Err(Error::new_info(
+                    return Error::new_info(
                         ErrorInfo::new_token(
                             self.get_span(),
                             Some(next.clone()),
@@ -262,16 +262,16 @@ impl TokenBuffer {
                         ),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
-                    ));
+                    );
                 }
             }
         }
 
-        Err(Error::new_info(
+        Error::new_info(
             ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
-        ))
+        )
     }
 
     pub fn want_value(&mut self) -> Result<Token, Error> {
@@ -287,7 +287,7 @@ impl TokenBuffer {
                 | TokenKind::Boolean
                 | TokenKind::SquareBegin => return Ok(next.clone()),
                 _ => {
-                    return Err(Error::new_info(
+                    return Error::new_info(
                         ErrorInfo::new_token(
                             self.get_span(),
                             Some(next.clone()),
@@ -295,17 +295,17 @@ impl TokenBuffer {
                         ),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
-                    ));
+                    );
                 }
             }
         }
 
-        Err(Error::new_info(
+        Error::new_info(
             ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             // TO-DO expecting value
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
-        ))
+        )
     }
 
     pub fn peek_value(&mut self) -> Option<Token> {
@@ -350,7 +350,7 @@ impl TokenBuffer {
                     return Ok(next.clone());
                 }
                 _ => {
-                    return Err(Error::new_info(
+                    return Error::new_info(
                         ErrorInfo::new_token(
                             self.get_span(),
                             Some(next.clone()),
@@ -358,17 +358,17 @@ impl TokenBuffer {
                         ),
                         ErrorKind::IncorrectTokenKind(TokenKind::String, next.clone()),
                         self.hint,
-                    ));
+                    );
                 }
             }
         }
 
-        Err(Error::new_info(
+        Error::new_info(
             ErrorInfo::new_token(self.get_span(), self.previous(), self.source.clone()),
             // TO-DO expecting operator
             ErrorKind::ExpectingKind(TokenKind::String),
             self.hint,
-        ))
+        )
     }
 
     pub fn peek_operator(&mut self) -> Option<Token> {

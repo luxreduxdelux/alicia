@@ -111,11 +111,11 @@ impl Scope {
                 //    println!("use: {value:?}");
                 //}
                 _ => {
-                    return Err(Error::new_info(
+                    return Error::new_info(
                         token_buffer.get_error_info(Some(token.clone())),
                         ErrorKind::UnknownTokenGlobal(token),
                         Some(ErrorHint::Global),
-                    ));
+                    );
                 }
             };
         }
@@ -136,6 +136,46 @@ impl Scope {
             Some(declaration)
         } else if let Some(parent) = &self.parent {
             parent.get_declaration(name)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_function(&self, name: Identifier) -> Option<&Function> {
+        if let Some(d) = self.get_declaration(name)
+            && let Declaration::Function(f) = d
+        {
+            Some(f)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_function_native(&self, name: Identifier) -> Option<&FunctionNative> {
+        if let Some(d) = self.get_declaration(name)
+            && let Declaration::FunctionNative(f) = d
+        {
+            Some(f)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_structure(&self, name: Identifier) -> Option<&Structure> {
+        if let Some(d) = self.get_declaration(name)
+            && let Declaration::Structure(s) = d
+        {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_enumerate(&self, name: Identifier) -> Option<&Enumerate> {
+        if let Some(d) = self.get_declaration(name)
+            && let Declaration::Enumerate(e) = d
+        {
+            Some(e)
         } else {
             None
         }

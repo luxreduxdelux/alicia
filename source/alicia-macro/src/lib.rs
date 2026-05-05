@@ -8,6 +8,8 @@ use syn::Token;
 use syn::parse_macro_input;
 use syn::punctuated::Punctuated;
 
+//================================================================
+
 #[proc_macro_attribute]
 pub fn function(_: TokenStream, input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as ItemFn);

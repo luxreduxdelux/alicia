@@ -14,24 +14,28 @@ use thiserror::Error;
 pub struct Error {
     info: Option<Box<ErrorInfo>>,
     hint: Option<Box<ErrorHint>>,
-    kind: ErrorKind,
+    kind: Box<ErrorKind>,
 }
 
 impl Error {
-    pub fn new_info(info: ErrorInfo, kind: ErrorKind, hint: Option<ErrorHint>) -> Self {
-        Self {
+    pub fn new_info<T>(
+        info: ErrorInfo,
+        kind: ErrorKind,
+        hint: Option<ErrorHint>,
+    ) -> Result<T, Self> {
+        Err(Self {
             info: Some(Box::new(info)),
-            kind,
+            kind: Box::new(kind),
             hint: hint.map(Box::new),
-        }
+        })
     }
 
-    pub fn new_kind(kind: ErrorKind, hint: Option<ErrorHint>) -> Self {
-        Self {
+    pub fn new_kind<T>(kind: ErrorKind, hint: Option<ErrorHint>) -> Result<T, Self> {
+        Err(Self {
             info: None,
-            kind,
+            kind: Box::new(kind),
             hint: hint.map(Box::new),
-        }
+        })
     }
 
     fn slice_list(list: &Vec<String>) -> Vec<String> {
@@ -198,13 +202,20 @@ pub enum ErrorHint {
     Function,
     Variable,
     Structure,
+    StructureD,
     Enumerate,
+    EnumerateD,
     Expression,
     Use,
     Return,
     Condition,
     Iteration,
     Block,
+    Kind,
+    Array,
+    //Table,
+    //Tuple,
+    //Range,
 }
 
 impl ErrorHint {
@@ -237,11 +248,19 @@ impl ErrorHint {
             ),
             ErrorHint::Structure => (
                 " parsing structure".to_string(),
-                "\nexample strcuture: structure foo { a: String }".to_string(),
+                "\nexample structure: structure foo { a: String }".to_string(),
+            ),
+            ErrorHint::StructureD => (
+                " parsing structure literal".to_string(),
+                "\nexample structure: foo { a := \"bar\" }".to_string(),
             ),
             ErrorHint::Enumerate => (
                 " parsing enumerate".to_string(),
                 "\nexample enumerate: enumerate foo { a, b, c }".to_string(),
+            ),
+            ErrorHint::EnumerateD => (
+                " parsing enumerate literal".to_string(),
+                "\nexample enumerate: foo : a { }".to_string(),
             ),
             ErrorHint::Expression => (
                 " parsing expression".to_string(),
@@ -267,6 +286,14 @@ impl ErrorHint {
                 " parsing block".to_string(),
                 "\nexample block: { ... }".to_string(),
             ),
+            ErrorHint::Kind => (
+                " parsing type".to_string(),
+                "\nexample type: foo: String".to_string(),
+            ),
+            ErrorHint::Array => (
+                " parsing array".to_string(),
+                "\nexample array: [ 1, 2, 3 ]".to_string(),
+            ),
         }
     }
 }
@@ -283,8 +310,15 @@ pub enum ErrorKind {
     UnknownToken(Token),
     #[error("unknown symbol \"{0}\".")]
     UnknownSymbol(Identifier),
+
+    //==== invocation
     #[error("\"{0}\" is not a valid function to invoke.")]
     InvalidInvocation(Identifier),
+    #[error("cannot invoke \"{0}\" with only {1} argument/s (was expecting {2} argument/s).")]
+    InvalidInvocationArgumentLength(Identifier, usize, usize),
+    #[error("invalid kind {0:?} for function \"{1}\" ({2} is of type {3:?})")]
+    InvalidInvocationArgumentKind(ExpressionKind, Identifier, Identifier, ExpressionKind),
+    //====
     #[error("\"{0}\" is not a valid variable to assign.")]
     InvalidAssignment(Identifier),
     #[error("not every path will return a value.")]
@@ -305,6 +339,4 @@ pub enum ErrorKind {
     IncorrectIdentifierSymbol(String, char),
     #[error("was expecting a value of type \"{0:?}\", found \"{1:?}\" instead.")]
     IncorrectKind(ExpressionKind, ExpressionKind),
-    #[error("cannot mix a value of type \"{0:?}\" and a value of type \"{1:?}\".")]
-    MixKind(ExpressionKind, ExpressionKind),
 }

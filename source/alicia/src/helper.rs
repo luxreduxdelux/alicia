@@ -24,10 +24,7 @@ impl Source {
                 data,
             })
         } else {
-            Err(Error::new_kind(
-                ErrorKind::FileNotFound(path.to_string()),
-                None,
-            ))
+            Error::new_kind(ErrorKind::FileNotFound(path.to_string()), None)
         }
     }
 }
