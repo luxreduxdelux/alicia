@@ -6,5 +6,5 @@ edition = "2024"
 [dependencies]
 alicia    = { path    = "../alicia" }
 thiserror = { version = "2.0"       }
-tower-lsp = { version = "0.20.0"    }
-tokio     = { version = "1.52.1", features = ["full"] }
+tower-lsp = { version = "0.20.0", default-features = false, features = ["runtime-agnostic"] }
+smol      = { version = "2.0.2" }

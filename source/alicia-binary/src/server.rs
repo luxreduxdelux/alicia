@@ -99,13 +99,9 @@ impl LanguageServer for Backend {
     }
 }
 
-fn foo() {}
-
 pub async fn server_main() {
-    foo();
-
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
+    let stdin = smol::Unblock::new(std::io::stdin());
+    let stdout = smol::Unblock::new(std::io::stdout());
 
     let (service, socket) = LspService::new(|client| Backend {
         client,

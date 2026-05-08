@@ -7,52 +7,13 @@ use crate::machine::Machine;
 use crate::machine::Value;
 use crate::machine::ValueType;
 use crate::token::*;
-use std::fmt::Debug;
 
 //================================================================
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 //================================================================
-
-#[derive(Debug, Clone)]
-pub enum NativeArgument {
-    Variable,
-    Constant(&'static [ValueType]),
-}
-
-#[derive(Debug, Clone)]
-pub struct FunctionNative {
-    pub name: String,
-    pub call: fn(&mut Machine, Argument) -> Option<Value>,
-    pub enter: NativeArgument,
-    pub leave: ValueType,
-}
-
-impl FunctionNative {
-    pub fn new(
-        name: String,
-        call: fn(&mut Machine, Argument) -> Option<Value>,
-        enter: NativeArgument,
-        leave: ValueType,
-    ) -> Self {
-        Self {
-            name,
-            call,
-            enter,
-            leave,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Declaration {
-    Function(Function),
-    FunctionNative(FunctionNative),
-    Structure(Structure),
-    Enumerate(Enumerate),
-    Definition(Definition),
-}
 
 #[derive(Debug, Clone)]
 pub struct Scope {
@@ -64,6 +25,12 @@ pub struct Scope {
 
 impl Scope {
     pub fn new(parent: Option<Box<Self>>) -> Self {
+        let source = if let Some(parent) = &parent {
+            parent.source.clone()
+        } else {
+            Vec::default()
+        };
+
         let slot = if let Some(parent) = &parent {
             parent.slot
         } else {
@@ -71,7 +38,7 @@ impl Scope {
         };
 
         Self {
-            source: Vec::default(),
+            source,
             symbol: HashMap::default(),
             parent,
             slot,
@@ -182,7 +149,7 @@ impl Scope {
     }
 
     pub fn set_declaration(&mut self, name: Identifier, value: Declaration) {
-        self.symbol.insert(name.to_string(), value);
+        self.symbol.insert(name.text, value);
     }
 
     pub fn get_slot(&self) -> usize {
@@ -192,5 +159,56 @@ impl Scope {
     pub fn get_and_add_slot(&mut self) -> usize {
         self.slot += 1;
         self.slot - 1
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionNative {
+    pub name: String,
+    pub call: fn(&mut Machine, Argument) -> Option<Value>,
+    pub enter: NativeArgument,
+    pub leave: ValueType,
+}
+
+impl FunctionNative {
+    pub fn new(
+        name: String,
+        call: fn(&mut Machine, Argument) -> Option<Value>,
+        enter: NativeArgument,
+        leave: ValueType,
+    ) -> Self {
+        Self {
+            name,
+            call,
+            enter,
+            leave,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum NativeArgument {
+    Variable,
+    Constant(&'static [ValueType]),
+}
+
+#[derive(Debug, Clone)]
+pub enum Declaration {
+    Function(Function),
+    FunctionNative(FunctionNative),
+    Structure(Structure),
+    Enumerate(Enumerate),
+    Definition(Definition),
+}
+
+#[derive(Debug)]
+pub struct FunctionMeta {
+    pub enter: NativeArgument,
+    pub leave: ValueType,
+}
+
+impl FunctionMeta {
+    pub const fn new(enter: NativeArgument, leave: ValueType) -> Self {
+        Self { enter, leave }
     }
 }

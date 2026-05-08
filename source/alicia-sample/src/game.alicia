@@ -26,8 +26,24 @@ function player_new() : Player {
 
 #================================================================
 
+structure Tile {
+    point: Vector,
+    where: Vector,
+    style: Integer,
+}
+
+function tile_new(point: Vector, where: Vector, style: Integer) : Tile {
+    return Tile {
+        point := point,
+        where := where,
+        style := style,
+    };
+}
+
+#================================================================
+
 structure Level {
-    data: Array,
+    data: Array<Tile>,
     size: Integer,
 }
 
@@ -40,45 +56,45 @@ function level_new() : Level {
 
     return Level {
         data := [
-            [ vector_new(0.0, 0.0), brick, 0 ],
-            [ vector_new(1.0, 0.0), brick, 0 ],
-            [ vector_new(2.0, 0.0), brick, 0 ],
-            [ vector_new(3.0, 0.0), brick, 0 ],
-            [ vector_new(4.0, 0.0), brick, 0 ],
-            [ vector_new(5.0, 0.0), grass, 1 ],
-            [ vector_new(6.0, 0.0), grass, 1 ],
+            tile_new(vector_new(0.0, 0.0), brick, 0),
+            tile_new(vector_new(1.0, 0.0), brick, 0),
+            tile_new(vector_new(2.0, 0.0), brick, 0),
+            tile_new(vector_new(3.0, 0.0), brick, 0),
+            tile_new(vector_new(4.0, 0.0), brick, 0),
+            tile_new(vector_new(5.0, 0.0), grass, 1),
+            tile_new(vector_new(6.0, 0.0), grass, 1),
 
-            [ vector_new(0.0, 1.0), brick, 0 ],
-            [ vector_new(1.0, 1.0), stone, 1 ],
-            [ vector_new(2.0, 1.0), stone, 1 ],
-            [ vector_new(3.0, 1.0), stone, 1 ],
-            [ vector_new(4.0, 1.0), brick, 0 ],
-            [ vector_new(5.0, 1.0), grass, 1 ],
-            [ vector_new(6.0, 1.0), grass, 1 ],
+            tile_new(vector_new(0.0, 1.0), brick, 0),
+            tile_new(vector_new(1.0, 1.0), stone, 1),
+            tile_new(vector_new(2.0, 1.0), stone, 1),
+            tile_new(vector_new(3.0, 1.0), stone, 1),
+            tile_new(vector_new(4.0, 1.0), brick, 0),
+            tile_new(vector_new(5.0, 1.0), grass, 1),
+            tile_new(vector_new(6.0, 1.0), grass, 1),
 
-            [ vector_new(0.0, 2.0), brick, 0 ],
-            [ vector_new(1.0, 2.0), stone, 1 ],
-            [ vector_new(2.0, 2.0), brick, 0 ],
-            [ vector_new(3.0, 2.0), box,   2 ],
-            [ vector_new(4.0, 2.0), brick, 0 ],
-            [ vector_new(5.0, 2.0), brick, 0 ],
-            [ vector_new(6.0, 2.0), brick, 0 ],
+            tile_new(vector_new(0.0, 2.0), brick, 0),
+            tile_new(vector_new(1.0, 2.0), stone, 1),
+            tile_new(vector_new(2.0, 2.0), brick, 0),
+            tile_new(vector_new(3.0, 2.0), box,   2),
+            tile_new(vector_new(4.0, 2.0), brick, 0),
+            tile_new(vector_new(5.0, 2.0), brick, 0),
+            tile_new(vector_new(6.0, 2.0), brick, 0),
 
-            [ vector_new(0.0, 3.0), brick, 0 ],
-            [ vector_new(1.0, 3.0), stone, 1 ],
-            [ vector_new(2.0, 3.0), box,   2 ],
-            [ vector_new(3.0, 3.0), stone, 1 ],
-            [ vector_new(4.0, 3.0), dot,   3 ],
-            [ vector_new(5.0, 3.0), dot,   3 ],
-            [ vector_new(6.0, 3.0), brick, 0 ],
+            tile_new(vector_new(0.0, 3.0), brick, 0),
+            tile_new(vector_new(1.0, 3.0), stone, 1),
+            tile_new(vector_new(2.0, 3.0), box,   2),
+            tile_new(vector_new(3.0, 3.0), stone, 1),
+            tile_new(vector_new(4.0, 3.0), dot,   3),
+            tile_new(vector_new(5.0, 3.0), dot,   3),
+            tile_new(vector_new(6.0, 3.0), brick, 0),
 
-            [ vector_new(0.0, 4.0), brick, 0 ],
-            [ vector_new(1.0, 4.0), brick, 0 ],
-            [ vector_new(2.0, 4.0), brick, 0 ],
-            [ vector_new(3.0, 4.0), brick, 0 ],
-            [ vector_new(4.0, 4.0), brick, 0 ],
-            [ vector_new(5.0, 4.0), brick, 0 ],
-            [ vector_new(6.0, 4.0), brick, 0 ],
+            tile_new(vector_new(0.0, 4.0), brick, 0),
+            tile_new(vector_new(1.0, 4.0), brick, 0),
+            tile_new(vector_new(2.0, 4.0), brick, 0),
+            tile_new(vector_new(3.0, 4.0), brick, 0),
+            tile_new(vector_new(4.0, 4.0), brick, 0),
+            tile_new(vector_new(5.0, 4.0), brick, 0),
+            tile_new(vector_new(6.0, 4.0), brick, 0),
         ],
         size := 7 * 5,
     };
@@ -108,12 +124,9 @@ function main() : Boolean {
             # draw every tile, except the box tile (draw ordering)
             loop (l_i < l_s) {
                 let l_current := l_d[l_i];
-                let current_point := l_current[0];
-                let current_which := l_current[1];
-                let current_style := to_integer(l_current[2]);
 
-                if (current_style != 2) {
-                    draw_texture((current_point.x) * 128.0, (current_point.y) * 128.0, current_which.x, current_which.y, 255, 255, 255, 255);
+                if (l_current.style != 2) {
+                    draw_texture((l_current.point.x) * 128.0, (l_current.point.y) * 128.0, l_current.where.x, l_current.where.y, 255, 255, 255, 255);
                 }
 
                 l_i := l_i + 1;
@@ -124,12 +137,9 @@ function main() : Boolean {
             # draw every box
             loop (l_i < l_s) {
                 let l_current := l_d[l_i];
-                let current_point := l_current[0];
-                let current_which := l_current[1];
-                let current_style := to_integer(l_current[2]);
 
-                if (current_style = 2) {
-                    draw_texture((current_point.x) * 128.0, (current_point.y) * 128.0, current_which.x, current_which.y, 255, 255, 255, 255);
+                if (l_current.style = 2) {
+                    draw_texture((l_current.point.x) * 128.0, (l_current.point.y) * 128.0, l_current.where.x, l_current.where.y, 255, 255, 255, 255);
                 }
 
                 l_i := l_i + 1;
@@ -161,7 +171,7 @@ function main() : Boolean {
                 # index into the level data array
                 let index := (wish_move.y) * 7.0 + (wish_move.x);
                 let which := l_d[to_integer(index)];
-                let style := to_integer(which[2]);
+                let style := which.style;
 
                 # walking into box
                 if (style = 2) {
@@ -172,23 +182,23 @@ function main() : Boolean {
 
                     let index_move := (wish_move_new.y) * 7.0 + (wish_move_new.x);
                     let which_move := l_d[to_integer(index_move)];
-                    let style_move := to_integer(which_move[2]);
+                    let style_move := which_move.style;
 
                     # if the new object isn't a brick wall or another box
                     if ((style_move != 0) and (style_move != 2)) {
                         # move the box
-                        l_d[to_integer(index_move)] := [
+                        l_d[to_integer(index_move)] := tile_new(
                             wish_move_new,
-                            which[1],
-                            which[2],
-                        ];
+                            which.where,
+                            which.style,
+                        );
 
                         # load a default stone tile into the old tile (wrong, but whatever)
-                        l_d[to_integer(index)] := [
+                        l_d[to_integer(index)] := tile_new(
                             wish_move,
                             vector_new(11.0, 6.0),
                             1,
-                        ];
+                        );
 
                         # move player
                         player.point.x := player.point.x + movement_x;
@@ -203,7 +213,6 @@ function main() : Boolean {
                     }
                 }
             }
-
             # draw player
             draw_player(player.point, player.angle);
 

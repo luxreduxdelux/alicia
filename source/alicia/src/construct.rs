@@ -395,6 +395,8 @@ pub enum ExpressionKind {
     Structure(Identifier),
     Enumerate(Identifier),
     Array(Box<ExpressionKind>),
+    Table(Box<ExpressionKind>, Box<ExpressionKind>),
+    //Tuple(Vec<ExpressionKind>),
 }
 
 impl PartialEq for ExpressionKind {
@@ -402,6 +404,7 @@ impl PartialEq for ExpressionKind {
         match (self, other) {
             (Self::Structure(l0), Self::Structure(r0)) => l0.text == r0.text,
             (Self::Enumerate(l0), Self::Enumerate(r0)) => l0.text == r0.text,
+            (Self::Array(l0), Self::Array(r0)) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
@@ -424,6 +427,7 @@ pub enum ExpressionValue {
     Structure(StructureD),
     Enumerate(EnumerateD),
     Array(ArrayD),
+    Table(TableD),
 }
 
 impl Display for ExpressionValue {
@@ -477,6 +481,7 @@ impl ExpressionValue {
                     Ok(Self::Boolean(value))
                 }
                 TokenClass::SquareBegin => Ok(Self::Array(ArrayD::parse_token(token_buffer)?)),
+                TokenClass::CurlyBegin => Ok(Self::Table(TableD::parse_token(token_buffer)?)),
                 _ => panic!(
                     "Alicia internal error: ExpressionValue::parse_token(): want_token() gave back a token that is not a possible value"
                 ),
@@ -498,6 +503,11 @@ impl ExpressionValue {
             Self::Structure(x)  => ExpressionKind::Structure(x.name.clone()),
             Self::Enumerate(x)  => ExpressionKind::Enumerate(x.name.clone()),
             Self::Array(x)      => ExpressionKind::Array(Box::new(x.analyze(scope, infer)?)),
+            Self::Table(x)      => {
+                let (a, b) = x.analyze(scope, infer)?;
+
+                ExpressionKind::Table(Box::new(a), Box::new(b))
+            },
         })
     }
 }
@@ -551,37 +561,37 @@ impl ExpressionOperator {
     }
 
     #[rustfmt::skip]
-    fn parse_token_mono(&self, token_a: Expression) -> Expression {
+    fn parse_token_mono(&self, token_a: Expression) -> ExpressionData {
         let token_a = Box::new(token_a);
 
         match self {
-            Self::Subtract      => Expression::OperationPrior(Self::Subtract,   token_a),
-            Self::Reference     => Expression::OperationPrior(Self::Reference,  token_a),
-            Self::Invocation(_) => Expression::OperationAfter(token_a, self.clone()),
-            Self::Indexation(_) => Expression::OperationAfter(token_a, self.clone()),
+            Self::Subtract      => ExpressionData::OperationPrior(Self::Subtract,   token_a),
+            Self::Reference     => ExpressionData::OperationPrior(Self::Reference,  token_a),
+            Self::Invocation(_) => ExpressionData::OperationAfter(token_a, self.clone()),
+            Self::Indexation(_) => ExpressionData::OperationAfter(token_a, self.clone()),
             x => panic!("incorrect parse_token_mono operator: {x:?}")
         }
     }
 
     #[rustfmt::skip]
-    fn parse_token_binary(&self, token_a: Expression, token_b: Expression) -> Expression {
+    fn parse_token_binary(&self, token_a: Expression, token_b: Expression) -> ExpressionData {
         let token_a = Box::new(token_a);
         let token_b = Box::new(token_b);
 
         match self {
-            Self::Add      => Expression::Operation(Self::Add,      token_a, token_b),
-            Self::Subtract => Expression::Operation(Self::Subtract, token_a, token_b),
-            Self::Multiply => Expression::Operation(Self::Multiply, token_a, token_b),
-            Self::Divide   => Expression::Operation(Self::Divide,   token_a, token_b),
-            Self::And      => Expression::Operation(Self::And,      token_a, token_b),
-            Self::Or       => Expression::Operation(Self::Or,       token_a, token_b),
-            Self::GT       => Expression::Operation(Self::GT,       token_a, token_b),
-            Self::LT       => Expression::Operation(Self::LT,       token_a, token_b),
-            Self::Equal    => Expression::Operation(Self::Equal,    token_a, token_b),
-            Self::GTE      => Expression::Operation(Self::GTE,      token_a, token_b),
-            Self::LTE      => Expression::Operation(Self::LTE,      token_a, token_b),
-            Self::EqualNot => Expression::Operation(Self::EqualNot, token_a, token_b),
-            Self::Dot      => Expression::Operation(Self::Dot, token_a, token_b),
+            Self::Add      => ExpressionData::Operation(Self::Add,      token_a, token_b),
+            Self::Subtract => ExpressionData::Operation(Self::Subtract, token_a, token_b),
+            Self::Multiply => ExpressionData::Operation(Self::Multiply, token_a, token_b),
+            Self::Divide   => ExpressionData::Operation(Self::Divide,   token_a, token_b),
+            Self::And      => ExpressionData::Operation(Self::And,      token_a, token_b),
+            Self::Or       => ExpressionData::Operation(Self::Or,       token_a, token_b),
+            Self::GT       => ExpressionData::Operation(Self::GT,       token_a, token_b),
+            Self::LT       => ExpressionData::Operation(Self::LT,       token_a, token_b),
+            Self::Equal    => ExpressionData::Operation(Self::Equal,    token_a, token_b),
+            Self::GTE      => ExpressionData::Operation(Self::GTE,      token_a, token_b),
+            Self::LTE      => ExpressionData::Operation(Self::LTE,      token_a, token_b),
+            Self::EqualNot => ExpressionData::Operation(Self::EqualNot, token_a, token_b),
+            Self::Dot      => ExpressionData::Operation(Self::Dot, token_a, token_b),
             x => panic!("incorrect parse_token_binary operator: {x:?}")
         }
     }
@@ -612,7 +622,22 @@ impl ExpressionOperator {
 }
 
 #[derive(Debug, Clone)]
-pub enum Expression {
+pub struct Expression {
+    pub span: TokenSpan,
+    pub data: ExpressionData,
+}
+
+impl Expression {
+    fn new(token_buffer: &mut TokenBuffer, data: ExpressionData) -> Self {
+        Self {
+            span: token_buffer.get_span(),
+            data,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ExpressionData {
     Value(ExpressionValue),
     Operation(ExpressionOperator, Box<Expression>, Box<Expression>),
     OperationPrior(ExpressionOperator, Box<Expression>),
@@ -629,16 +654,21 @@ impl Expression {
 
                 value
             } else if token_buffer.want_peek(TokenKind::SquareBegin) {
-                Expression::Value(ExpressionValue::from_token(token_buffer)?)
+                let value = ExpressionData::Value(ExpressionValue::from_token(token_buffer)?);
+
+                Expression::new(token_buffer, value)
             } else if token_buffer.peek_operator().is_some() {
                 let operator = ExpressionOperator::from_token(token_buffer.want_operator()?);
+                let value = Self::parse_token(token_buffer, 0.0)?;
 
-                ExpressionOperator::parse_token_mono(
-                    &operator,
-                    Expression::Value(ExpressionValue::from_token(token_buffer)?),
+                Expression::new(
+                    token_buffer,
+                    ExpressionOperator::parse_token_mono(&operator, value),
                 )
             } else {
-                let value = Expression::Value(ExpressionValue::from_token(token_buffer)?);
+                let value = ExpressionData::Value(ExpressionValue::from_token(token_buffer)?);
+                let value = Expression::new(token_buffer, value);
+                token_buffer.push_span();
 
                 if let Some(operator) = token_buffer.peek_operator() {
                     match operator.class.kind() {
@@ -659,7 +689,10 @@ impl Expression {
 
                                     token_buffer.want(TokenKind::ParenthesisClose)?;
 
-                                    ExpressionOperator::parse_token_mono(&operator, value)
+                                    Expression::new(
+                                        token_buffer,
+                                        ExpressionOperator::parse_token_mono(&operator, value),
+                                    )
                                 }
                                 _ => value,
                             }
@@ -677,7 +710,10 @@ impl Expression {
 
                                     token_buffer.want(TokenKind::SquareClose)?;
 
-                                    ExpressionOperator::parse_token_mono(&operator, value)
+                                    Expression::new(
+                                        token_buffer,
+                                        ExpressionOperator::parse_token_mono(&operator, value),
+                                    )
                                 }
                                 _ => value,
                             }
@@ -700,7 +736,10 @@ impl Expression {
 
                 let value_b = Self::parse_token(token_buffer, operator.bind_power().1)?;
 
-                value_a = ExpressionOperator::parse_token_binary(&operator, value_a, value_b)
+                value_a = Expression::new(
+                    token_buffer,
+                    ExpressionOperator::parse_token_binary(&operator, value_a, value_b),
+                )
             }
 
             Ok(value_a)
@@ -708,12 +747,12 @@ impl Expression {
     }
 
     pub fn analyze_identifier(&self) -> Result<Identifier, Error> {
-        match self {
-            Expression::Value(value) => match value {
+        match &self.data {
+            ExpressionData::Value(value) => match value {
                 ExpressionValue::Identifier(identifier) => Ok(identifier.clone()),
                 _ => panic!("analyze_identifier: value is not an identifier"),
             },
-            Expression::Operation(operator, a, _) => a.analyze_identifier(),
+            ExpressionData::Operation(operator, a, _) => a.analyze_identifier(),
             x => panic!("analyze_identifier: expression is not a value {x:#?}"),
         }
     }
@@ -723,12 +762,12 @@ impl Expression {
         scope: &Scope,
         infer: Option<ExpressionKind>,
     ) -> Result<ExpressionKind, Error> {
-        match self {
-            Expression::Value(value) => match value {
+        match &self.data {
+            ExpressionData::Value(value) => match value {
                 ExpressionValue::Identifier(identifier) => {
                     let value = scope
                         .get_declaration(identifier.clone())
-                        .expect(&format!("no declaration for identifier {identifier}"));
+                        .expect(&format!("no declaration for identifier {identifier:?}"));
 
                     match value {
                         Declaration::Function(function) => {
@@ -742,15 +781,21 @@ impl Expression {
                             ))
                         }
                         Declaration::Definition(definition) => {
-                            definition.value.analyze(scope, infer)
+                            if let Some(kind) = &definition.kind_e {
+                                Ok(kind.clone())
+                            } else {
+                                definition.value.analyze(scope, infer)
+                            }
                         }
                         _ => todo!(),
                     }
                 }
-                // TO-DO don't I need to analyze structure & enumerate?
+                ExpressionValue::Structure(structure_d) => structure_d.analyze(scope),
+                //ExpressionValue::Enumerate(enumerate_d) => enumerate_d.analyze(scope),
+                ExpressionValue::Array(array_d) => array_d.analyze(scope, infer),
                 _ => value.kind(scope, infer),
             },
-            Expression::Operation(operator, e_a, e_b) => {
+            ExpressionData::Operation(operator, e_a, e_b) => {
                 let a = e_a.analyze(scope, infer.clone())?;
 
                 match operator {
@@ -762,7 +807,10 @@ impl Expression {
                                 let structure = scope.get_declaration(identifier.clone()).unwrap();
 
                                 if let Declaration::Structure(structure) = structure {
-                                    let field = structure.variable.get(&b.text).unwrap();
+                                    let field = structure.variable.get(&b.text).expect(&format!(
+                                        "no variable {:?} in structure {:?}",
+                                        b, structure
+                                    ));
                                     return field.kind.type_check(scope);
                                 } else {
                                     panic!("dot operator: a is not a structure")
@@ -816,7 +864,7 @@ impl Expression {
                     }
                 }
             }
-            Expression::OperationPrior(operator, value) => {
+            ExpressionData::OperationPrior(operator, value) => {
                 let value = value.analyze(scope, infer)?;
 
                 if value.is_number() {
@@ -834,11 +882,12 @@ impl Expression {
                         }
                     }
                 } else {
+                    // TO-DO add reference
                     panic!("unsupported operator {operator:?} for value of type {value:?}")
                 }
             }
-            Expression::OperationAfter(value, operator) => {
-                let value = value.analyze(scope, infer.clone())?;
+            ExpressionData::OperationAfter(value_o, operator) => {
+                let value = value_o.analyze(scope, infer.clone())?;
 
                 match operator {
                     ExpressionOperator::Invocation(list) => {
@@ -849,7 +898,12 @@ impl Expression {
                                 let enter_b = list.len();
 
                                 if enter_a != enter_b {
-                                    return Error::new_kind(
+                                    return Error::new_info(
+                                        ErrorInfo::new_point(
+                                            self.span.clone(),
+                                            self.span.begin,
+                                            scope.get_active_source(),
+                                        ),
                                         ErrorKind::InvalidInvocationArgumentLength(
                                             identifier, enter_b, enter_a,
                                         ),
@@ -885,7 +939,12 @@ impl Expression {
                                         let enter_b = list.len();
 
                                         if function_list.len() != list.len() {
-                                            return Error::new_kind(
+                                            return Error::new_info(
+                                                ErrorInfo::new_point(
+                                                    self.span.clone(),
+                                                    self.span.begin,
+                                                    scope.get_active_source(),
+                                                ),
                                                 ErrorKind::InvalidInvocationArgumentLength(
                                                     identifier, enter_b, enter_a,
                                                 ),
@@ -896,15 +955,16 @@ impl Expression {
                                         for (i, target) in function_list.iter().enumerate() {
                                             let source = list[i].analyze(scope, infer.clone())?;
 
-                                            if source != target.clone().into() {
+                                            if source != target.into_kind(scope) {
                                                 panic!(
-                                                    "native function: argument type mis-match ({source:?} != {target:?})"
+                                                    "native function: argument type mis-match ({source:?} != {target:?}) for function {:?}",
+                                                    function.name,
                                                 );
                                             }
                                         }
                                     }
 
-                                    Ok(function.leave.clone().into())
+                                    Ok(function.leave.into_kind(scope))
                                 } else {
                                     panic!("invalid native function")
                                 }
@@ -914,7 +974,11 @@ impl Expression {
                     }
                     ExpressionOperator::Indexation(expression) => {
                         // TO-DO check if expression is an integer type, return the index type (a is array, a[0] is integer)
-                        Ok(value)
+
+                        match value {
+                            ExpressionKind::Array(expression_kind) => Ok(*expression_kind),
+                            _ => panic!("indexing a non-array value"),
+                        }
                     }
                     _ => todo!(),
                 }
@@ -928,8 +992,8 @@ impl Expression {
         function: &mut MFunction,
         from_dot: bool,
     ) -> Result<(), Error> {
-        match self {
-            Expression::Value(value) => match value {
+        match &self.data {
+            ExpressionData::Value(value) => match value {
                 ExpressionValue::Identifier(identifier) => {
                     let value = scope
                         .get_declaration(identifier.clone())
@@ -948,10 +1012,8 @@ impl Expression {
                 }
                 x => panic!("invalid L-expression value {x:?}"),
             },
-            Expression::Operation(operator, a, b) => match operator {
+            ExpressionData::Operation(operator, a, b) => match operator {
                 ExpressionOperator::Dot => {
-                    //println!("enter dot: {a:?} / {b:?}");
-
                     a.compile_l(scope, function, true)?;
 
                     let b = b.analyze_identifier()?;
@@ -964,7 +1026,7 @@ impl Expression {
                 }
                 x => panic!("invalid L-expression operator {x:#?}"),
             },
-            Expression::OperationAfter(value, operator) => match operator {
+            ExpressionData::OperationAfter(value, operator) => match operator {
                 ExpressionOperator::Indexation(expression) => {
                     value.compile_l(scope, function, true)?;
                     expression.as_ref().unwrap().compile(scope, function)?;
@@ -983,20 +1045,21 @@ impl Expression {
         Ok(())
     }
 
-    #[rustfmt::skip]
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
-        match self {
-            Expression::Value(value) => match value {
+        match &self.data {
+            ExpressionData::Value(value) => match value {
                 ExpressionValue::Identifier(identifier) => {
-                    let value = scope.get_declaration(identifier.clone()).expect(&format!("no declaration for identifier {identifier}"));
+                    let value = scope
+                        .get_declaration(identifier.clone())
+                        .expect(&format!("no declaration for identifier {identifier}"));
 
                     match value {
                         Declaration::Definition(definition) => {
                             function.push(Instruction::Load(definition.index.unwrap()))
-                        },
-                        _ => todo!()
+                        }
+                        _ => todo!(),
                     }
-                },
+                }
                 ExpressionValue::String(value) => {
                     function.push(Instruction::Push(Value::String(value.to_string())))
                 }
@@ -1010,34 +1073,26 @@ impl Expression {
                     function.push(Instruction::Push(Value::Boolean(*value)))
                 }
                 ExpressionValue::Structure(value) => {
-                    let structure = scope.get_declaration(value.name.clone()).unwrap();
+                    let structure = scope.get_structure(value.name.clone()).unwrap();
 
-                    match structure {
-                        Declaration::Structure(structure) => {
-
-                            for field in structure.variable.keys().rev() {
-                                let value = value.list.get(field).unwrap();
-                                value.compile(scope, function)?;
-                            }
-
-                            function.push(Instruction::PushStructure(structure.clone()))
-                        },
-                        x => panic!("declaration is not a structure: {x:?}")
+                    for field in structure.variable.keys().rev() {
+                        let value = value.list.get(field).unwrap();
+                        value.compile(scope, function)?;
                     }
+
+                    function.push(Instruction::PushStructure(structure.clone()))
                 }
                 ExpressionValue::Enumerate(value) => {
-                    let enumerate = scope.get_declaration(value.name.clone()).unwrap();
+                    let enumerate = scope.get_enumerate(value.name.clone()).unwrap();
 
-                    match enumerate {
-                        Declaration::Enumerate(enumerate) => {
-                            for l in value.list.iter().rev() {
-                                l.compile(scope, function)?;
-                            }
-
-                            function.push(Instruction::PushEnumerate(enumerate.clone(), value.kind.text.clone()))
-                        },
-                        x => panic!("declaration is not a structure: {x:?}")
+                    for l in value.list.iter().rev() {
+                        l.compile(scope, function)?;
                     }
+
+                    function.push(Instruction::PushEnumerate(
+                        enumerate.clone(),
+                        value.kind.text.clone(),
+                    ))
                 }
                 ExpressionValue::Array(value) => {
                     for l in value.list.iter().rev() {
@@ -1048,7 +1103,7 @@ impl Expression {
                 }
                 _ => todo!(),
             },
-            Expression::Operation(operator, a, b) => {
+            ExpressionData::Operation(operator, a, b) => {
                 a.compile(scope, function)?;
 
                 if let ExpressionOperator::Dot = operator {
@@ -1061,94 +1116,83 @@ impl Expression {
                 b.compile(scope, function)?;
 
                 match operator {
-                    ExpressionOperator::Add      => function.push(Instruction::Add),
+                    ExpressionOperator::Add => function.push(Instruction::Add),
                     ExpressionOperator::Subtract => function.push(Instruction::Subtract),
                     ExpressionOperator::Multiply => function.push(Instruction::Multiply),
-                    ExpressionOperator::Divide   => function.push(Instruction::Divide),
-                    ExpressionOperator::And      => function.push(Instruction::And),
-                    ExpressionOperator::Or       => function.push(Instruction::Or),
-                    ExpressionOperator::GT       => function.push(Instruction::GT),
-                    ExpressionOperator::LT       => function.push(Instruction::LT),
-                    ExpressionOperator::Equal    => function.push(Instruction::Equal),
-                    ExpressionOperator::GTE      => function.push(Instruction::GTE),
-                    ExpressionOperator::LTE      => function.push(Instruction::LTE),
+                    ExpressionOperator::Divide => function.push(Instruction::Divide),
+                    ExpressionOperator::And => function.push(Instruction::And),
+                    ExpressionOperator::Or => function.push(Instruction::Or),
+                    ExpressionOperator::GT => function.push(Instruction::GT),
+                    ExpressionOperator::LT => function.push(Instruction::LT),
+                    ExpressionOperator::Equal => function.push(Instruction::Equal),
+                    ExpressionOperator::GTE => function.push(Instruction::GTE),
+                    ExpressionOperator::LTE => function.push(Instruction::LTE),
                     ExpressionOperator::EqualNot => function.push(Instruction::EqualNot),
-                    // TO-DO reference
                     _ => todo!(),
                 }
             }
-            Expression::OperationPrior(operator, value) => {
-                match operator {
-                    ExpressionOperator::Reference => {
-                        let identifier = value.analyze_identifier()?;
+            ExpressionData::OperationPrior(operator, value) => match operator {
+                ExpressionOperator::Reference => {
+                    let identifier = value.analyze_identifier()?;
 
-                        let value = scope.get_declaration(identifier.clone()).expect(&format!("no declaration for identifier {identifier}"));
+                    let value = scope
+                        .get_declaration(identifier.clone())
+                        .expect(&format!("no declaration for identifier {identifier}"));
 
-                        match value {
-                            Declaration::Definition(definition) => {
-                                function.push(Instruction::PushReference(definition.index.unwrap()));
-                            },
-                            _ => todo!()
+                    match value {
+                        Declaration::Definition(definition) => {
+                            function.push(Instruction::PushReference(definition.index.unwrap()));
                         }
-                    },
-                    ExpressionOperator::Subtract => {
-                        value.compile(scope, function)?;
-
-                        function.push(Instruction::Negate)
+                        _ => todo!(),
                     }
-                    ExpressionOperator::Not => {
-                        value.compile(scope, function)?;
-
-                        function.push(Instruction::Not)
-                    }
-                    _ => todo!()
                 }
-            }
-            Expression::OperationAfter(value, operator) => {
+                ExpressionOperator::Subtract => {
+                    value.compile(scope, function)?;
+
+                    function.push(Instruction::Negate)
+                }
+                ExpressionOperator::Not => {
+                    value.compile(scope, function)?;
+
+                    function.push(Instruction::Not)
+                }
+                _ => todo!(),
+            },
+            ExpressionData::OperationAfter(value, operator) => {
                 let kind = value.analyze(scope, None)?;
 
                 match operator {
-                    ExpressionOperator::Invocation(list) => {
-                        match kind {
-                            ExpressionKind::Function(identifier) => {
-                                for argument in list.iter().rev() {
-                                    argument.compile(scope, function)?;
-                                }
+                    ExpressionOperator::Invocation(list) => match kind {
+                        ExpressionKind::Function(identifier) => {
+                            for argument in list.iter().rev() {
+                                argument.compile(scope, function)?;
+                            }
 
-                                function.push(Instruction::Call(FunctionCall::Function(identifier.text), list.len()))
-                            },
-                            ExpressionKind::FunctionNative(identifier) => {
-                                for argument in list.iter().rev() {
-                                    argument.compile(scope, function)?;
-                                }
-
-                                function.push(Instruction::Call(FunctionCall::Function(identifier.text), list.len()))
-                            },
-                            _ => panic!("invalid value for invocation operator {value:?}")
+                            function.push(Instruction::Call(
+                                FunctionCall::Function(identifier.text),
+                                list.len(),
+                            ))
                         }
+                        ExpressionKind::FunctionNative(identifier) => {
+                            for argument in list.iter().rev() {
+                                argument.compile(scope, function)?;
+                            }
+
+                            function.push(Instruction::Call(
+                                FunctionCall::Function(identifier.text),
+                                list.len(),
+                            ))
+                        }
+                        _ => panic!("invalid value for invocation operator {value:?}"),
                     },
                     ExpressionOperator::Indexation(expression) => {
                         value.compile(scope, function)?;
                         expression.as_ref().unwrap().compile(scope, function)?;
                         function.push(Instruction::LoadIndex)
-
-                        /*
-                        match value {
-                            ExpressionKind::FunctionNative(identifier) => {
-                                for argument in list.iter().rev() {
-                                    argument.compile(scope, function)?;
-                                }
-
-                                function.push(Instruction::Call(FunctionCall::Function(identifier.text), list.len()))
-                            },
-                            _ => panic!("invalid value for invocation operator {value:?}")
-                        }
-                        */
-                    },
+                    }
                     _ => todo!(),
                 }
             }
-            _ => todo!(),
         }
 
         Ok(())
@@ -1382,7 +1426,7 @@ impl Block {
         scope: &mut Scope,
         argument: Vec<Variable>,
         iteration: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<Flow, Error> {
         let mut scope_block = Scope::new(Some(Box::new(scope.clone())));
 
         for variable in &argument {
@@ -1394,7 +1438,11 @@ impl Block {
                 name: variable.name.clone(),
                 kind_i: Some(variable.kind.clone()),
                 kind_e: Some(kind),
-                value: Expression::Value(ExpressionValue::Identifier(variable.name.clone())),
+                // TO-DO will cause stack overflow
+                value: Expression {
+                    span: variable.span.clone(),
+                    data: ExpressionData::Value(ExpressionValue::Identifier(variable.name.clone())),
+                },
                 index: Some(index),
             };
 
@@ -1458,9 +1506,11 @@ impl Block {
             }
         }
 
+        let flow = self.analyze_flow(&scope_block, false)?;
+
         self.scope = Some(scope_block);
 
-        Ok(())
+        Ok(flow)
     }
 
     fn analyze_flow(&self, scope: &Scope, condition: bool) -> Result<Flow, Error> {
@@ -1626,9 +1676,8 @@ impl Function {
     }
 
     pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
-        self.block.analyze(scope, self.enter.clone(), false)?;
+        let flow = self.block.analyze(scope, self.enter.clone(), false)?;
 
-        let flow = self.block.analyze_flow(scope, false)?;
         let target = if let Some(leave) = &self.leave {
             leave.type_check(scope)?
         } else {
@@ -1706,11 +1755,21 @@ impl Kind {
             "Decimal" => ExpressionKind::Decimal,
             "Boolean" => ExpressionKind::Boolean,
             "Array" => {
-                let first = self.list.first().unwrap();
+                let first = self.list.get(0).unwrap();
                 ExpressionKind::Array(Box::new(first.type_check(scope)?))
             }
+            "Table" => {
+                let k = self.list.get(0).unwrap();
+                let v = self.list.get(1).unwrap();
+                ExpressionKind::Table(
+                    Box::new(k.type_check(scope)?),
+                    Box::new(v.type_check(scope)?),
+                )
+            }
             _ => {
-                let definition = scope.get_declaration(self.name.clone()).unwrap();
+                let definition = scope
+                    .get_declaration(self.name.clone())
+                    .expect(&format!("no declaration for name {:?}", self.name));
 
                 match definition {
                     Declaration::Structure(structure) => {
@@ -1808,7 +1867,7 @@ impl ArrayD {
         let infer = if let Some(infer) = infer {
             match infer {
                 ExpressionKind::Array(kind) => Some(*kind),
-                _ => panic!("non-array kind for array definition"),
+                x => panic!("non-array kind for array definition {x:?}"),
             }
         } else {
             None
@@ -1828,7 +1887,49 @@ impl ArrayD {
             }
         }
 
-        Ok(current.expect("could not infer type for array"))
+        Ok(ExpressionKind::Array(Box::new(
+            current.expect("could not infer type for array"),
+        )))
+    }
+}
+
+//================================================================
+
+#[derive(Debug, Clone)]
+pub struct TableD {
+    pub list: Vec<(Expression, Expression)>,
+}
+
+impl TableD {
+    pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
+        // TO-DO use Hint::Table
+        token_buffer.parse(ErrorHint::Array, |token_buffer| {
+            let mut list = Vec::new();
+
+            token_buffer.want(TokenKind::CurlyBegin)?;
+
+            Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
+                let k = Expression::parse_token(token_buffer, 0.0)?;
+                token_buffer.want(TokenKind::Definition)?;
+                let v = Expression::parse_token(token_buffer, 0.0)?;
+
+                list.push((k, v));
+
+                Ok(())
+            })?;
+
+            token_buffer.want(TokenKind::CurlyClose)?;
+
+            Ok(Self { list })
+        })
+    }
+
+    pub fn analyze(
+        &self,
+        scope: &Scope,
+        infer: Option<ExpressionKind>,
+    ) -> Result<(ExpressionKind, ExpressionKind), Error> {
+        todo!()
     }
 }
 
@@ -1863,11 +1964,34 @@ impl StructureD {
             Ok(Self { name, list })
         })
     }
+
+    fn analyze(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
+        let structure = scope.get_structure(self.name.clone()).unwrap();
+
+        if self.list.len() != structure.variable.len() {
+            panic!("structure literal: mis-match in field count")
+        }
+
+        for (field, variable) in &structure.variable {
+            let value = self.list.get(field).unwrap();
+            let target = variable.analyze(scope)?;
+            let source = value.analyze(scope, Some(target.clone()))?;
+
+            if source != target {
+                panic!(
+                    "structure literal: type mis-match ({source:?} != {target:?}) for field {field}"
+                )
+            }
+        }
+
+        Ok(ExpressionKind::Structure(self.name.clone()))
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Structure {
     pub name: Identifier,
+    pub kind: Option<Vec<Identifier>>,
     pub parent: Option<Identifier>,
     pub variable: BTreeMap<String, Variable>,
     pub function: BTreeMap<String, Function>,
@@ -1882,6 +2006,23 @@ impl Structure {
             token_buffer.want(TokenKind::Structure)?;
 
             let name = token_buffer.want_identifier()?;
+
+            let kind = if token_buffer.want_peek(TokenKind::LT) {
+                let mut kind = Vec::new();
+
+                token_buffer.want(TokenKind::LT)?;
+
+                Statement::parse_comma(token_buffer, TokenKind::GT, |token_buffer| {
+                    kind.push(token_buffer.want_identifier()?);
+                    Ok(())
+                })?;
+
+                token_buffer.want(TokenKind::GT)?;
+
+                Some(kind)
+            } else {
+                None
+            };
 
             let parent = if token_buffer.want_peek(TokenKind::Colon) {
                 token_buffer.want(TokenKind::Colon)?;
@@ -1919,6 +2060,7 @@ impl Structure {
 
             Ok(Self {
                 name,
+                kind,
                 parent,
                 variable,
                 function,
@@ -1926,7 +2068,7 @@ impl Structure {
         })
     }
 
-    pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze(&mut self, scope: &mut Scope) -> Result<ExpressionKind, Error> {
         for variable in self.variable.values() {
             variable.analyze(scope)?;
         }
@@ -1935,7 +2077,7 @@ impl Structure {
             function.analyze(scope)?;
         }
 
-        Ok(())
+        Ok(ExpressionKind::Structure(self.name.clone()))
     }
 }
 

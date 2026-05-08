@@ -1,22 +1,12 @@
 use crate::{
     error::*,
-    machine::{Argument, Machine, Value, ValueType},
+    machine::{Argument, Array, Machine, Structure, Value, ValueType},
     scope::*,
 };
 use alicia_macro::function;
 use alicia_macro::function_add;
 
-#[derive(Debug)]
-pub struct FunctionMeta {
-    pub enter: NativeArgument,
-    pub leave: ValueType,
-}
-
-impl FunctionMeta {
-    pub const fn new(enter: NativeArgument, leave: ValueType) -> Self {
-        Self { enter, leave }
-    }
-}
+//================================================================
 
 pub struct Analysis {}
 
@@ -102,28 +92,21 @@ impl Analysis {
         None
     }
 
-    #[function]
-    fn test(a: String, b: i64, c: f64) -> () {
-        println!("a is {a}");
-        println!("b is {b}");
-        println!("c is {c}");
+    //#[function]
+    //fn test() -> () {}
 
-        Some(1.into())
+    fn test(_: &mut Machine, _: Argument) -> Option<Value> {
+        //let mut v = Structure::new("Vector".to_string());
+        //v.insert("x".to_string(), Value::Integer(1));
+        //v.insert("y".to_string(), Value::Integer(1));
+        //Some(Value::Structure(v))
+
+        let mut v = Array::new();
+        v.push(Value::Integer(1));
+        v.push(Value::Integer(2));
+        v.push(Value::Integer(3));
+        Some(Value::Array(v))
     }
-
-    /*
-    fn test_real(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
-        let a = argument.next().unwrap().as_string();
-        let b = argument.next().unwrap().as_integer();
-        let c = argument.next().unwrap().as_decimal();
-
-        println!("a is {a}");
-        println!("b is {b}");
-        println!("c is {c}");
-
-        Some(1.into())
-    }
-    */
 
     #[rustfmt::skip]
     pub fn analyze_tree(mut scope: Scope) -> Result<Scope, Error> {
@@ -133,15 +116,14 @@ impl Analysis {
             enter: NativeArgument::Variable,
             leave: ValueType::Null,
         }));
-        /*
         scope.symbol.insert("test".to_string(), Declaration::FunctionNative(FunctionNative {
             name: "test".to_string(),
             call: Self::test,
-            enter: Self::alicia_meta_test.enter,
-            leave: Self::alicia_meta_test.leave,
+            enter: NativeArgument::Constant(&[
+            ]),
+            leave: ValueType::Array(&ValueType::Integer),
         }));
-        */
-        function_add!(scope, test);
+        //function_add!(scope, test);
 
         let mut scope_clone = scope.clone();
 

@@ -134,7 +134,8 @@ impl TokenBuffer {
     }
 
     pub fn next(&mut self) -> Option<Token> {
-        if let Some(next) = self.buffer.get(self.cursor) {
+        if let Some(next) = self.buffer.get(self.cursor).cloned() {
+            self.get_span_mutable().add_point(next.point);
             self.cursor += 1;
             return Some(next.clone());
         }
@@ -285,7 +286,8 @@ impl TokenBuffer {
                 | TokenKind::Integer
                 | TokenKind::Decimal
                 | TokenKind::Boolean
-                | TokenKind::SquareBegin => return Ok(next.clone()),
+                | TokenKind::SquareBegin
+                | TokenKind::CurlyBegin => return Ok(next.clone()),
                 _ => {
                     return Error::new_info(
                         ErrorInfo::new_token(
@@ -316,7 +318,8 @@ impl TokenBuffer {
                 | TokenKind::Integer
                 | TokenKind::Decimal
                 | TokenKind::Boolean
-                | TokenKind::SquareBegin => return Some(next),
+                | TokenKind::SquareBegin
+                | TokenKind::CurlyBegin => return Some(next),
                 _ => return None,
             }
         }

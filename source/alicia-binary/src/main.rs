@@ -10,8 +10,8 @@ use thiserror::Error;
 
 enum Command {
     Help,
-    Server,
     Run(Run),
+    Server,
 }
 
 impl Command {
@@ -24,7 +24,6 @@ impl Command {
         while let Some(argument) = list.next() {
             match argument.as_str() {
                 "--help" => return Ok(Self::Help),
-                "--server" => return Ok(Self::Server),
                 "--path" => {
                     if let Some(value) = list.next() {
                         path = Some(value);
@@ -45,6 +44,7 @@ impl Command {
                         ));
                     }
                 }
+                "--server" => return Ok(Self::Server),
                 x => {
                     if x.starts_with("--") {
                         return Err(CommandError::UnknownArgument(x.to_string()));
@@ -108,8 +108,7 @@ fn alicia_run(path: &str, main: &str) -> Result<(), CommandError> {
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let command = Command::parse();
 
     match command {
@@ -120,9 +119,7 @@ async fn main() {
                 println!("--path {{path}}: Load a given source file.");
                 println!("--main {{name}}: Load a given \"main\" function name.");
             }
-            Command::Server => {
-                server_main().await;
-            }
+
             Command::Run(run) => {
                 let path = run.path.unwrap_or("src/test.alicia".to_string());
                 let main = run.main.unwrap_or("main".to_string());
@@ -134,6 +131,9 @@ async fn main() {
                 if let Err(error) = alicia_run(&path, &main) {
                     println!("{error}");
                 }
+            }
+            Command::Server => {
+                smol::block_on(async { server_main().await });
             }
         },
         Err(error) => {

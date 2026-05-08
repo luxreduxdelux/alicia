@@ -1,6 +1,8 @@
 use crate::construct::Enumerate as EnumerateD;
 use crate::construct::Structure as StructureD;
 use crate::error::Error;
+use crate::helper::Identifier;
+use crate::helper::Point;
 use crate::prelude::ExpressionKind;
 use crate::scope::Declaration;
 use crate::scope::FunctionNative;
@@ -239,7 +241,7 @@ impl Frame {
         }
     }
 
-    fn pop_array(&mut self) -> Vec<ValuePointer> {
+    fn pop_array(&mut self) -> Array {
         let pop = self.pop();
 
         if let Value::Array(value) = pop {
@@ -268,7 +270,7 @@ pub enum Value {
     Structure(Structure),
     Enumerate(Enumerate),
     Reference(ValuePointer),
-    Array(Vec<ValuePointer>),
+    Array(Array),
 }
 
 impl From<String> for Value {
@@ -314,11 +316,15 @@ pub struct Structure {
 }
 
 impl Structure {
-    fn new(kind: String) -> Self {
+    pub fn new(kind: String) -> Self {
         Self {
             kind,
             data: HashMap::default(),
         }
+    }
+
+    pub fn insert(&mut self, key: String, value: Value) {
+        self.data.insert(key, Rc::new(RefCell::new(value)));
     }
 }
 
@@ -336,6 +342,23 @@ impl Enumerate {
             kind,
             data: Vec::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Array {
+    data: Vec<ValuePointer>,
+}
+
+impl Array {
+    pub fn new() -> Self {
+        Self {
+            data: Vec::default(),
+        }
+    }
+
+    pub fn push(&mut self, value: Value) {
+        self.data.push(Rc::new(RefCell::new(value)));
     }
 }
 
@@ -389,9 +412,9 @@ impl Display for Value {
             Value::Array(value) => {
                 formatter.write_str("[")?;
 
-                let length = value.len();
+                let length = value.data.len();
 
-                for (i, v) in value.iter().enumerate() {
+                for (i, v) in value.data.iter().enumerate() {
                     if i == length - 1 {
                         formatter.write_str(&format!("{v:?}"))?;
                     } else {
@@ -453,23 +476,30 @@ pub enum ValueType {
     Integer,
     Decimal,
     Boolean,
-    Structure,
-    Enumerate,
+    Structure(&'static str),
+    Enumerate(&'static str),
     Reference,
-    Array,
+    Array(&'static ValueType),
     Table,
 }
 
 #[rustfmt::skip]
-impl Into<ExpressionKind> for ValueType {
-    fn into(self) -> ExpressionKind {
+impl ValueType {
+    pub fn into_kind(&self, scope: &Scope) -> ExpressionKind {
         match self {
-            ValueType::Null        => ExpressionKind::Null,
-            ValueType::String      => ExpressionKind::String,
-            ValueType::Integer     => ExpressionKind::Integer,
-            ValueType::Decimal     => ExpressionKind::Decimal,
-            ValueType::Boolean     => ExpressionKind::Boolean,
-            _ => panic!("cannot convert VT to EK")
+            ValueType::Null         => ExpressionKind::Null,
+            ValueType::String       => ExpressionKind::String,
+            ValueType::Integer      => ExpressionKind::Integer,
+            ValueType::Decimal      => ExpressionKind::Decimal,
+            ValueType::Boolean      => ExpressionKind::Boolean,
+            ValueType::Structure(x) => {
+                let i = Identifier::from_string(x.to_string(), Point::default()).unwrap();
+                ExpressionKind::Structure(i)
+            },
+            ValueType::Array(x) => {
+                ExpressionKind::Array(Box::new(x.into_kind(scope)))
+            },
+            _ => panic!("cannot convert VT to EK"),
         }
     }
 }
@@ -689,10 +719,10 @@ impl Function {
                     frame.push(Value::Enumerate(e));
                 }
                 Instruction::PushArray(arity) => {
-                    let mut a = Vec::new();
+                    let mut a = Array::new();
 
                     for _ in 0..*arity {
-                        a.push(Rc::new(RefCell::new(frame.pop())));
+                        a.push(frame.pop());
                     }
 
                     frame.push(Value::Array(a));
@@ -728,7 +758,7 @@ impl Function {
                     let reference = frame.pop_reference().borrow().clone();
 
                     if let Value::Array(array) = reference {
-                        let field = &array[value as usize];
+                        let field = &array.data[value as usize];
 
                         frame.push(Value::Reference(field.clone()));
                     }
@@ -745,7 +775,7 @@ impl Function {
                 Instruction::LoadIndex => {
                     let index = frame.pop_integer();
                     let array = frame.pop_array();
-                    frame.push(array[index as usize].borrow().clone());
+                    frame.push(array.data[index as usize].borrow().clone());
                 }
                 Instruction::Hide(index) => {
                     frame.hide(index);
