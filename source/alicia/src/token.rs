@@ -19,9 +19,10 @@ impl Token {
         line: &str,
         line_index: usize,
         list: &mut Vec<Token>,
-    ) -> Result<(), ErrorKind> {
+        mut comment: bool,
+    ) -> Result<bool, ErrorKind> {
         if line.is_empty() {
-            return Ok(());
+            return Ok(comment);
         }
 
         let mut line_buffer = LineBuffer::new(line.to_string());
@@ -30,7 +31,31 @@ impl Token {
         let mut inside_escape = false;
 
         while let Some(character) = line_buffer.next() {
+            if comment {
+                if character == '#'
+                    && let Some(peek) = line_buffer.peek()
+                    && peek == '#'
+                {
+                    line_buffer.next();
+                    comment = false;
+                } else {
+                    continue;
+                }
+            }
+
             match character {
+                '#' => {
+                    if let Some(peek) = line_buffer.peek() {
+                        if peek == '#' {
+                            println!("comment enter");
+                            line_buffer.next();
+                            comment = true;
+                            continue;
+                        }
+                    }
+
+                    return Ok(comment);
+                }
                 '0'..='9' => {
                     inside_number = true;
                     line_buffer.push(character);
@@ -70,7 +95,6 @@ impl Token {
 
                     inside_string = !inside_string;
                 }
-                '#' => return Ok(()),
                 '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ';' | ',' | '&' | '<' | '>'
                 | '+' | '-' | '*' | '/' => {
                     if character == '.' && inside_number {
@@ -138,13 +162,16 @@ impl Token {
             )?);
         }
 
-        Ok(())
+        Ok(comment)
     }
 
     fn new(point: Point, text: &str) -> Result<Self, ErrorKind> {
+        let class = TokenClass::parse_text(text, point)?;
+        let x = point.x - text.len();
+
         Ok(Self {
-            point,
-            class: TokenClass::parse_text(text, point)?,
+            point: Point::new(x, point.y),
+            class,
         })
     }
 }
@@ -211,11 +238,11 @@ impl Display for TokenClass {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Self::Identifier(value)  => formatter.write_str(&value.text),
-            Self::String(text)       => formatter.write_str(&format!("String(\"{text}\")")),
-            Self::Integer(value)      => formatter.write_str(&format!("Integer(\"{value}\")")),
-            Self::Decimal(value)      => formatter.write_str(&format!("Decimal(\"{value}\")")),
-            Self::Boolean(value)      => formatter.write_str(&format!("Boolean(\"{value}\")")),
+            Self::Identifier(value) => formatter.write_str(&value.text),
+            Self::String(text)      => formatter.write_str(&format!("String(\"{text}\")")),
+            Self::Integer(value)    => formatter.write_str(&format!("Integer(\"{value}\")")),
+            Self::Decimal(value)    => formatter.write_str(&format!("Decimal(\"{value}\")")),
+            Self::Boolean(value)    => formatter.write_str(&format!("Boolean(\"{value}\")")),
             _ => formatter.write_str(&format!("{}", self.kind())),
         }
     }
@@ -282,7 +309,13 @@ impl TokenClass {
                     let text = &text[1..text.len() - 1];
                     Self::String(text.to_string())
                 } else {
-                    Self::Identifier(Identifier::from_string(text.to_string(), point)?)
+                    let x = if text.len() == 1 {
+                        point.x
+                    } else {
+                        point.x - text.len()
+                    };
+
+                    Self::Identifier(Identifier::from_string(text.to_string(), Point::new(x, point.y + 1))?)
                 }
             }
         })

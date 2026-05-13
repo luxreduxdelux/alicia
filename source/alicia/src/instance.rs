@@ -1,4 +1,3 @@
-use crate::analysis::Analysis;
 use crate::buffer::TokenBuffer;
 use crate::error::Error;
 use crate::scope::*;
@@ -47,7 +46,7 @@ impl Builder {
             );
         }
 
-        let scope = Analysis::analyze_tree(scope)?;
+        let scope = scope.analyze()?;
 
         //================================================================
 
@@ -71,10 +70,8 @@ impl Builder {
             );
         }
 
-        let scope = Analysis::analyze_tree(scope)?;
-
         //================================================================
 
-        Ok(scope)
+        Ok(scope.analyze()?)
     }
 }

@@ -60,9 +60,9 @@ impl Machine {
                     let compile = f.compile(scope)?;
 
                     if f.name.text == "main" {
-                        //for (i, c) in compile.buffer.iter().enumerate() {
-                        //    println!("{i}: {c:#?}");
-                        //}
+                        for (i, c) in compile.buffer.iter().enumerate() {
+                            println!("{i}: {c:#?}");
+                        }
                     }
 
                     self.function
@@ -251,6 +251,16 @@ impl Frame {
         }
     }
 
+    fn pop_table(&mut self) -> Table {
+        let pop = self.pop();
+
+        if let Value::Table(value) = pop {
+            value
+        } else {
+            self.panic(format!("Frame::pop_table(): Invalid value \"{pop:?}\"."))
+        }
+    }
+
     fn panic<T>(&self, mut text: String) -> T {
         text.push_str(&format!("\n{:#?}", self));
         panic!("{}", text)
@@ -271,6 +281,24 @@ pub enum Value {
     Enumerate(Enumerate),
     Reference(ValuePointer),
     Array(Array),
+    Table(Table),
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
+            (Self::Decimal(l0), Self::Decimal(r0)) => l0 == r0,
+            (Self::Boolean(l0), Self::Boolean(r0)) => l0 == r0,
+            (Self::Structure(l0), Self::Structure(r0)) => l0 == r0,
+            (Self::Enumerate(l0), Self::Enumerate(r0)) => l0 == r0,
+            (Self::Reference(l0), Self::Reference(r0)) => l0 == r0,
+            (Self::Array(l0), Self::Array(r0)) => l0 == r0,
+            (Self::Table(l0), Self::Table(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
 }
 
 impl From<String> for Value {
@@ -309,7 +337,7 @@ impl From<bool> for Value {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Structure {
     pub kind: String,
     pub data: HashMap<String, ValuePointer>,
@@ -328,7 +356,7 @@ impl Structure {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Enumerate {
     pub name: String,
     pub kind: String,
@@ -345,7 +373,7 @@ impl Enumerate {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Array {
     data: Vec<ValuePointer>,
 }
@@ -359,6 +387,25 @@ impl Array {
 
     pub fn push(&mut self, value: Value) {
         self.data.push(Rc::new(RefCell::new(value)));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Table {
+    data: Vec<(ValuePointer, ValuePointer)>,
+}
+
+impl Table {
+    pub fn new() -> Self {
+        Self {
+            data: Vec::default(),
+        }
+    }
+
+    pub fn insert(&mut self, k: Value, v: Value) {
+        let k = Rc::new(RefCell::new(k));
+        let v = Rc::new(RefCell::new(v));
+        self.data.push((k, v));
     }
 }
 
@@ -378,10 +425,12 @@ impl Display for Value {
                 let length = value.data.len();
 
                 for (i, (k, v)) in value.data.iter().enumerate() {
+                    let v = v.borrow();
+
                     if i == length - 1 {
-                        formatter.write_str(&format!("{k}: {v:?} "))?;
+                        formatter.write_str(&format!("{k}: {v} "))?;
                     } else {
-                        formatter.write_str(&format!("{k}: {v:?}, "))?;
+                        formatter.write_str(&format!("{k}: {v}, "))?;
                     }
                 }
 
@@ -407,7 +456,7 @@ impl Display for Value {
                 formatter.write_str("}")
             },
             Value::Reference(value) => {
-                formatter.write_str(&format!("{value:?}"))
+                formatter.write_str(&format!("{}", value.borrow()))
             }
             Value::Array(value) => {
                 formatter.write_str("[")?;
@@ -415,16 +464,35 @@ impl Display for Value {
                 let length = value.data.len();
 
                 for (i, v) in value.data.iter().enumerate() {
+                    let v = v.borrow();
+
                     if i == length - 1 {
-                        formatter.write_str(&format!("{v:?}"))?;
+                        formatter.write_str(&format!("{v}"))?;
                     } else {
-                        formatter.write_str(&format!("{v:?}, "))?;
+                        formatter.write_str(&format!("{v}, "))?;
                     }
                 }
 
                 formatter.write_str("]")
-            }
+            },
+            Value::Table(value) => {
+                formatter.write_str("{")?;
 
+                let length = value.data.len();
+
+                for (i, v) in value.data.iter().enumerate() {
+                    let a = v.0.borrow();
+                    let b = v.1.borrow();
+
+                    if i == length - 1 {
+                        formatter.write_str(&format!("{a} : {b}"))?;
+                    } else {
+                        formatter.write_str(&format!("{a} : {b}, "))?;
+                    }
+                }
+
+                formatter.write_str("}")
+            }
         }
     }
 }
@@ -465,6 +533,7 @@ impl Value {
             Self::Enumerate(_) => ValueKind::Enumerate,
             Self::Reference(_) => ValueKind::Reference,
             Self::Array(_)     => ValueKind::Array,
+            Self::Table(_)     => ValueKind::Table,
         }
     }
 }
@@ -558,17 +627,19 @@ pub enum Instruction {
     PushStructure(StructureD),
     PushEnumerate(EnumerateD, String),
     PushArray(usize),
-    //PushTable,
+    PushTable(usize),
     //PushTuple,
     //PushRange,
     Push(Value),
     Save(usize),
     SaveReference,
     SaveField(String),
-    SaveIndex,
+    SaveIndexArray,
+    SaveIndexTable,
     Load(usize),
     LoadField(String),
-    LoadIndex,
+    LoadIndexArray,
+    LoadIndexTable,
     Hide(usize),
     Call(FunctionCall, usize),
 }
@@ -727,6 +798,18 @@ impl Function {
 
                     frame.push(Value::Array(a));
                 }
+                Instruction::PushTable(arity) => {
+                    let mut t = Table::new();
+
+                    for _ in 0..*arity {
+                        let v = frame.pop();
+                        let k = frame.pop();
+
+                        t.insert(k, v);
+                    }
+
+                    frame.push(Value::Table(t));
+                }
                 Instruction::Push(value) => {
                     frame.push(value.clone());
                 }
@@ -753,7 +836,7 @@ impl Function {
                         frame.push(Value::Reference(field.clone()));
                     }
                 }
-                Instruction::SaveIndex => {
+                Instruction::SaveIndexArray => {
                     let value = frame.pop_integer();
                     let reference = frame.pop_reference().borrow().clone();
 
@@ -761,6 +844,19 @@ impl Function {
                         let field = &array.data[value as usize];
 
                         frame.push(Value::Reference(field.clone()));
+                    }
+                }
+                Instruction::SaveIndexTable => {
+                    let value = frame.pop();
+                    let reference = frame.pop_reference().borrow().clone();
+
+                    if let Value::Table(table) = reference {
+                        for (k, v) in table.data {
+                            if k.borrow().clone() == value {
+                                frame.push(Value::Reference(v));
+                                break;
+                            }
+                        }
                     }
                 }
                 Instruction::Load(index) => {
@@ -772,10 +868,23 @@ impl Function {
                     let value = value.data.get(name).unwrap().borrow().clone();
                     frame.push(value);
                 }
-                Instruction::LoadIndex => {
+                Instruction::LoadIndexArray => {
                     let index = frame.pop_integer();
                     let array = frame.pop_array();
                     frame.push(array.data[index as usize].borrow().clone());
+                }
+                Instruction::LoadIndexTable => {
+                    let index = frame.pop();
+                    let table = frame.pop_table();
+
+                    for (k, v) in table.data {
+                        if k.borrow().clone() == index {
+                            frame.push(v.borrow().clone());
+                            break;
+                        }
+                    }
+
+                    //panic!("no value in table with a key of {index}")
                 }
                 Instruction::Hide(index) => {
                     frame.hide(index);

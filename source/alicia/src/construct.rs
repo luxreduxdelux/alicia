@@ -392,6 +392,8 @@ pub enum ExpressionKind {
     Boolean,
     Function(Identifier),
     FunctionNative(Identifier),
+    DeclarationStructure(Identifier),
+    DeclarationEnumerate(Identifier),
     Structure(Identifier),
     Enumerate(Identifier),
     Array(Box<ExpressionKind>),
@@ -502,12 +504,8 @@ impl ExpressionValue {
             Self::Boolean(_)    => ExpressionKind::Boolean,
             Self::Structure(x)  => ExpressionKind::Structure(x.name.clone()),
             Self::Enumerate(x)  => ExpressionKind::Enumerate(x.name.clone()),
-            Self::Array(x)      => ExpressionKind::Array(Box::new(x.analyze(scope, infer)?)),
-            Self::Table(x)      => {
-                let (a, b) = x.analyze(scope, infer)?;
-
-                ExpressionKind::Table(Box::new(a), Box::new(b))
-            },
+            Self::Array(x)      => x.analyze(scope, infer)?,
+            Self::Table(x)      => x.analyze(scope, infer)?,
         })
     }
 }
@@ -752,8 +750,9 @@ impl Expression {
                 ExpressionValue::Identifier(identifier) => Ok(identifier.clone()),
                 _ => panic!("analyze_identifier: value is not an identifier"),
             },
-            ExpressionData::Operation(operator, a, _) => a.analyze_identifier(),
-            x => panic!("analyze_identifier: expression is not a value {x:#?}"),
+            ExpressionData::Operation(_, a, _) => a.analyze_identifier(),
+            ExpressionData::OperationAfter(e, _) => e.analyze_identifier(),
+            ExpressionData::OperationPrior(_, e) => e.analyze_identifier(),
         }
     }
 
@@ -787,7 +786,12 @@ impl Expression {
                                 definition.value.analyze(scope, infer)
                             }
                         }
-                        _ => todo!(),
+                        Declaration::Structure(_) => {
+                            Ok(ExpressionKind::DeclarationStructure(identifier.clone()))
+                        }
+                        Declaration::Enumerate(_) => {
+                            Ok(ExpressionKind::DeclarationEnumerate(identifier.clone()))
+                        }
                     }
                 }
                 ExpressionValue::Structure(structure_d) => structure_d.analyze(scope),
@@ -798,28 +802,30 @@ impl Expression {
             ExpressionData::Operation(operator, e_a, e_b) => {
                 let a = e_a.analyze(scope, infer.clone())?;
 
-                match operator {
-                    ExpressionOperator::Dot => {
-                        let b = e_b.analyze_identifier()?;
+                if let ExpressionOperator::Dot = operator {
+                    let b = e_b.analyze_identifier()?;
 
-                        match &a {
-                            ExpressionKind::Structure(identifier) => {
-                                let structure = scope.get_declaration(identifier.clone()).unwrap();
+                    match &a {
+                        ExpressionKind::Structure(identifier) => {
+                            let structure = scope.get_structure(identifier.clone()).unwrap();
 
-                                if let Declaration::Structure(structure) = structure {
-                                    let field = structure.variable.get(&b.text).expect(&format!(
-                                        "no variable {:?} in structure {:?}",
-                                        b, structure
-                                    ));
-                                    return field.kind.type_check(scope);
+                            if let Some(field) = structure.variable.get(&b.text) {
+                                return field.kind.type_check(scope);
+                            }
+                        }
+                        ExpressionKind::DeclarationStructure(identifier) => {
+                            let structure = scope.get_structure(identifier.clone()).unwrap();
+
+                            if let Some(field) = structure.function.get(&b.text) {
+                                if let Some(leave) = &field.leave {
+                                    return leave.type_check(scope);
                                 } else {
-                                    panic!("dot operator: a is not a structure")
+                                    return Ok(ExpressionKind::Null);
                                 }
                             }
-                            _ => panic!("dot operator: a is not a structure {a:?}"),
                         }
+                        _ => panic!("dot operator: a is not a structure {a:?}"),
                     }
-                    _ => {}
                 }
 
                 let b = e_b.analyze(scope, infer)?;
@@ -977,6 +983,7 @@ impl Expression {
 
                         match value {
                             ExpressionKind::Array(expression_kind) => Ok(*expression_kind),
+                            ExpressionKind::Table(a, b) => Ok(*b),
                             _ => panic!("indexing a non-array value"),
                         }
                     }
@@ -1028,10 +1035,16 @@ impl Expression {
             },
             ExpressionData::OperationAfter(value, operator) => match operator {
                 ExpressionOperator::Indexation(expression) => {
+                    let kind = value.analyze(scope, None)?;
+
                     value.compile_l(scope, function, true)?;
                     expression.as_ref().unwrap().compile(scope, function)?;
 
-                    function.push(Instruction::SaveIndex);
+                    match kind {
+                        ExpressionKind::Array(_) => function.push(Instruction::SaveIndexArray),
+                        ExpressionKind::Table(_, _) => function.push(Instruction::SaveIndexTable),
+                        _ => todo!(),
+                    }
 
                     if !from_dot {
                         function.push(Instruction::SaveReference);
@@ -1057,7 +1070,7 @@ impl Expression {
                         Declaration::Definition(definition) => {
                             function.push(Instruction::Load(definition.index.unwrap()))
                         }
-                        _ => todo!(),
+                        _ => {}
                     }
                 }
                 ExpressionValue::String(value) => {
@@ -1101,12 +1114,23 @@ impl Expression {
 
                     function.push(Instruction::PushArray(value.list.len()))
                 }
+                ExpressionValue::Table(value) => {
+                    for (k, v) in value.list.iter().rev() {
+                        k.compile(scope, function)?;
+                        v.compile(scope, function)?;
+                    }
+
+                    function.push(Instruction::PushTable(value.list.len()))
+                }
                 _ => todo!(),
             },
             ExpressionData::Operation(operator, a, b) => {
+                let kind = a.analyze(scope, None)?;
+
                 a.compile(scope, function)?;
 
                 if let ExpressionOperator::Dot = operator {
+                    println!("{b:#?}");
                     let b = b.analyze_identifier()?;
                     function.push(Instruction::LoadField(b.text));
 
@@ -1186,9 +1210,18 @@ impl Expression {
                         _ => panic!("invalid value for invocation operator {value:?}"),
                     },
                     ExpressionOperator::Indexation(expression) => {
+                        let kind = value.analyze(scope, None)?;
+
                         value.compile(scope, function)?;
                         expression.as_ref().unwrap().compile(scope, function)?;
-                        function.push(Instruction::LoadIndex)
+
+                        match kind {
+                            ExpressionKind::Array(_) => function.push(Instruction::LoadIndexArray),
+                            ExpressionKind::Table(_, _) => {
+                                function.push(Instruction::LoadIndexTable)
+                            }
+                            _ => todo!(),
+                        }
                     }
                     _ => todo!(),
                 }
@@ -1928,8 +1961,44 @@ impl TableD {
         &self,
         scope: &Scope,
         infer: Option<ExpressionKind>,
-    ) -> Result<(ExpressionKind, ExpressionKind), Error> {
-        todo!()
+    ) -> Result<ExpressionKind, Error> {
+        let (i_a, i_b) = if let Some(infer) = infer {
+            match infer {
+                ExpressionKind::Table(a, b) => (Some(*a), Some(*b)),
+                x => panic!("non-table kind for table definition {x:?}"),
+            }
+        } else {
+            (None, None)
+        };
+
+        let mut c_a = i_a;
+        let mut c_b = i_b;
+
+        for (e_a, e_b) in &self.list {
+            let k_a = e_a.analyze(scope, c_a.clone())?;
+            let k_b = e_b.analyze(scope, c_b.clone())?;
+
+            if let Some(ref c_a) = c_a {
+                if k_a != *c_a {
+                    panic!("type mis-match in array literal ({k_a:?} != {c_a:?})")
+                }
+            } else {
+                c_a = Some(k_a)
+            }
+
+            if let Some(ref c_b) = c_b {
+                if k_b != *c_b {
+                    panic!("type mis-match in array literal ({k_b:?} != {c_b:?})")
+                }
+            } else {
+                c_b = Some(k_b)
+            }
+        }
+
+        Ok(ExpressionKind::Table(
+            Box::new(c_a.unwrap()),
+            Box::new(c_b.unwrap()),
+        ))
     }
 }
 

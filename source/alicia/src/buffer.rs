@@ -101,12 +101,24 @@ pub struct TokenBuffer {
 impl TokenBuffer {
     pub fn new(source: Source) -> Result<Self, Error> {
         let mut buffer: Vec<Token> = Vec::new();
+        let mut comment = false;
 
         for (i, line) in source.data.lines().enumerate() {
-            if let Err(kind) = Token::parse_line(line, i, &mut buffer) {
-                return Error::new_kind(kind, None);
+            match Token::parse_line(line, i, &mut buffer, comment) {
+                Ok(c) => {
+                    comment = c;
+                }
+                Err(e) => {
+                    return Error::new_kind(e, None);
+                }
             }
         }
+
+        if comment {
+            panic!("multi-line comment without delimeter")
+        }
+
+        //panic!("buffer: {buffer:#?}");
 
         Ok(Self {
             span: Vec::default(),
