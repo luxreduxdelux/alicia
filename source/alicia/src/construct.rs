@@ -1026,7 +1026,15 @@ impl Expression {
 
                     let b = b.analyze_identifier()?;
 
-                    function.push(Instruction::SaveField(b.text));
+                    if let ExpressionKind::Structure(identifier) = a.analyze(scope, None)?
+                        && let Some(structure) = scope.get_structure(identifier)
+                    {
+                        function.push(Instruction::SaveField(
+                            *structure.index_variable.get(&b.text).unwrap(),
+                        ));
+                    }
+
+                    //function.push(Instruction::SaveField(b.text));
 
                     if !from_dot {
                         function.push(Instruction::SaveReference);
@@ -1067,11 +1075,8 @@ impl Expression {
                         .get_declaration(identifier.clone())
                         .expect(&format!("no declaration for identifier {identifier}"));
 
-                    match value {
-                        Declaration::Definition(definition) => {
-                            function.push(Instruction::Load(definition.index.unwrap()))
-                        }
-                        _ => {}
+                    if let Declaration::Definition(definition) = value {
+                        function.push(Instruction::Load(definition.index.unwrap()))
                     }
                 }
                 ExpressionValue::String(value) => {
@@ -1093,8 +1098,6 @@ impl Expression {
                         let value = value.list.get(field).unwrap();
                         value.compile(scope, function)?;
                     }
-
-                    println!("push structure: {:?}", structure.index);
 
                     function.push(Instruction::PushStructure(structure.index.unwrap()))
                 }
@@ -1133,7 +1136,15 @@ impl Expression {
                 if let ExpressionOperator::Dot = operator {
                     let b = b.analyze_identifier()?;
 
-                    function.push(Instruction::LoadField(b.text));
+                    if let ExpressionKind::Structure(identifier) = a.analyze(scope, None)?
+                        && let Some(structure) = scope.get_structure(identifier)
+                    {
+                        function.push(Instruction::LoadField(
+                            *structure.index_variable.get(&b.text).unwrap(),
+                        ));
+                    }
+
+                    //function.push(Instruction::LoadField(b.text));
 
                     return Ok(());
                 }
@@ -2076,6 +2087,7 @@ pub struct Structure {
     pub variable: BTreeMap<String, Variable>,
     pub function: BTreeMap<String, Function>,
     pub index: Option<usize>,
+    pub index_variable: HashMap<String, usize>,
 }
 
 impl Structure {
@@ -2083,6 +2095,7 @@ impl Structure {
         token_buffer.parse(ErrorHint::Structure, |token_buffer| {
             let mut variable = BTreeMap::new();
             let mut function = BTreeMap::new();
+            let mut index_variable = HashMap::default();
 
             token_buffer.want(TokenKind::Structure)?;
 
@@ -2125,6 +2138,7 @@ impl Structure {
                     function.insert(f.name.text.clone(), f);
                 } else if token.class.kind() == TokenKind::Identifier {
                     let v = Variable::parse_token(token_buffer, None)?;
+                    index_variable.insert(v.name.text.clone(), variable.len());
                     variable.insert(v.name.text.clone(), v);
 
                     if let Some(token) = token_buffer.peek()
@@ -2146,6 +2160,7 @@ impl Structure {
                 variable,
                 function,
                 index: None,
+                index_variable,
             })
         })
     }
@@ -2202,6 +2217,7 @@ pub struct Enumerate {
     pub name: Identifier,
     pub variable: BTreeMap<String, Vec<Identifier>>,
     pub function: BTreeMap<String, Function>,
+    pub index: Option<usize>,
 }
 
 impl Enumerate {
@@ -2261,6 +2277,7 @@ impl Enumerate {
                 name,
                 variable,
                 function,
+                index: None,
             })
         })
     }
@@ -2269,6 +2286,8 @@ impl Enumerate {
         for function in self.function.values_mut() {
             function.analyze(scope.clone())?;
         }
+
+        self.index = Some(scope.borrow_mut().add_index_enumerate());
 
         Ok(())
     }

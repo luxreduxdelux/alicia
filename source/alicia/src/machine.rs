@@ -38,6 +38,10 @@ impl<T> Symbol<T> {
         self.text.insert(text, self.data.len() - 1);
     }
 
+    fn insert_index_only(&mut self, value: T) {
+        self.data.push(value);
+    }
+
     fn get(&self, index: usize) -> Option<&T> {
         self.data.get(index)
     }
@@ -53,10 +57,10 @@ impl<T> Symbol<T> {
 
 #[derive(Debug, Clone)]
 pub struct Machine {
-    pub function: Symbol<Function>,
-    pub structure: Symbol<crate::construct::Structure>,
-    pub enumerate: Symbol<crate::construct::Enumerate>,
-    pub function_native: HashMap<String, FunctionNative>,
+    function: Symbol<Function>,
+    structure: Symbol<crate::construct::Structure>,
+    enumerate: Symbol<crate::construct::Enumerate>,
+    function_native: HashMap<String, FunctionNative>,
 }
 
 impl Machine {
@@ -91,27 +95,23 @@ impl Machine {
                     self.function_native.insert(f.name.clone(), f.clone());
                 }
                 Declaration::Structure(s) => {
-                    for (name, function) in &s.function {
+                    for (_, function) in &s.function {
                         let compile = function.compile(scope)?;
 
-                        self.function.insert(name.clone(), compile);
+                        self.function.insert_index_only(compile);
                     }
 
                     self.structure.insert(s.name.text.clone(), s.clone());
                 }
-                /*
-                Declaration::Enumerate(s) => {
-                    let mut map = EnumerateMap::default();
-
-                    for (name, function) in &s.function {
+                Declaration::Enumerate(e) => {
+                    for (_, function) in &e.function {
                         let compile = function.compile(scope)?;
 
-                        map.function.insert(name.to_string(), compile);
+                        self.function.insert_index_only(compile);
                     }
 
-                    self.enumerate.insert(s.name.text.clone(), map);
+                    self.enumerate.insert(e.name.text.clone(), e.clone());
                 }
-                */
                 _ => {}
             }
         }
@@ -354,19 +354,19 @@ impl From<bool> for Value {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Structure {
     pub kind: String,
-    pub data: HashMap<String, ValuePointer>,
+    pub data: Vec<ValuePointer>,
 }
 
 impl Structure {
     pub fn new(kind: String) -> Self {
         Self {
             kind,
-            data: HashMap::default(),
+            data: Vec::default(),
         }
     }
 
-    pub fn insert(&mut self, key: String, value: Value) {
-        self.data.insert(key, Rc::new(RefCell::new(value)));
+    pub fn insert(&mut self, value: Value) {
+        self.data.push(Rc::new(RefCell::new(value)));
     }
 }
 
@@ -438,6 +438,17 @@ impl Display for Value {
 
                 let length = value.data.len();
 
+                for (i, v) in value.data.iter().enumerate() {
+                    let v = v.borrow();
+
+                    if i == length - 1 {
+                        formatter.write_str(&format!("{v}"))?;
+                    } else {
+                        formatter.write_str(&format!("{v}, "))?;
+                    }
+                }
+
+                /*
                 for (i, (k, v)) in value.data.iter().enumerate() {
                     let v = v.borrow();
 
@@ -447,6 +458,7 @@ impl Display for Value {
                         formatter.write_str(&format!("{k}: {v}, "))?;
                     }
                 }
+                */
 
                 formatter.write_str("}")
             },
@@ -639,6 +651,7 @@ pub enum Instruction {
     Return(bool),
     PushReference(usize),
     PushStructure(usize),
+    // TO-DO use usize, usize
     PushEnumerate(EnumerateD, String),
     PushArray(usize),
     PushTable(usize),
@@ -647,15 +660,16 @@ pub enum Instruction {
     Push(Value),
     Save(usize),
     SaveReference,
-    SaveField(String),
+    SaveField(usize),
     SaveIndexArray,
     SaveIndexTable,
     Load(usize),
-    LoadField(String),
+    LoadField(usize),
     LoadIndexArray,
     LoadIndexTable,
     Hide(usize),
     Call(usize, usize),
+    // TO-DO use usize, usize
     CallNative(String, usize),
 }
 
@@ -782,8 +796,9 @@ impl Function {
                     let mut s = Structure::new(index.name.text.clone());
 
                     for variable in &index.variable {
-                        s.data
-                            .insert(variable.0.to_string(), Rc::new(RefCell::new(frame.pop())));
+                        //s.data
+                        //    .insert(variable.0.to_string(), Rc::new(RefCell::new(frame.pop())));
+                        s.insert(frame.pop());
                     }
 
                     frame.push(Value::Structure(s));
@@ -833,14 +848,14 @@ impl Function {
 
                     *value_r = value_v;
                 }
-                Instruction::SaveField(name) => {
+                Instruction::SaveField(index) => {
                     let reference = frame.pop_reference().borrow().clone();
 
                     if let Value::Structure(structure) = reference {
                         let field = structure
                             .data
-                            .get(name)
-                            .expect(&format!("no field {name} for structure {structure:?}"));
+                            .get(*index)
+                            .expect(&format!("no field {index} for structure {structure:?}"));
 
                         frame.push(Value::Reference(field.clone()));
                     }
@@ -872,9 +887,9 @@ impl Function {
                     let value = frame.load(index);
                     frame.push(value);
                 }
-                Instruction::LoadField(name) => {
+                Instruction::LoadField(index) => {
                     let value = frame.pop_structure();
-                    let value = value.data.get(name).unwrap().borrow().clone();
+                    let value = value.data.get(*index).unwrap().borrow().clone();
                     frame.push(value);
                 }
                 Instruction::LoadIndexArray => {

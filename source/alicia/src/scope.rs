@@ -34,7 +34,7 @@ pub struct Scope {
     pub source: Vec<Source>,
     pub symbol: BTreeMap<String, Declaration>,
     pub parent: Option<ScopePointer>,
-    pub index: Index,
+    index: Index,
 }
 
 impl Scope {
