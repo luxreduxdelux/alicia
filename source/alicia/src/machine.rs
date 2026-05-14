@@ -18,34 +18,54 @@ use std::rc::Rc;
 //================================================================
 
 #[derive(Debug, Clone)]
-pub enum FunctionKind {
-    Function(Function),
-    FunctionNative(FunctionNative),
+struct Symbol<T> {
+    data: Vec<T>,
+    text: HashMap<String, usize>,
 }
 
-#[derive(Debug, Clone, Default)]
-struct StructureMap {
-    function: HashMap<String, Function>,
+impl<T> Default for Symbol<T> {
+    fn default() -> Self {
+        Self {
+            data: Default::default(),
+            text: Default::default(),
+        }
+    }
 }
 
-#[derive(Debug, Clone, Default)]
-struct EnumerateMap {
-    function: HashMap<String, Function>,
+impl<T> Symbol<T> {
+    fn insert(&mut self, text: String, value: T) {
+        self.data.push(value);
+        self.text.insert(text, self.data.len() - 1);
+    }
+
+    fn get(&self, index: usize) -> Option<&T> {
+        self.data.get(index)
+    }
+
+    fn get_text(&self, text: &str) -> Option<&T> {
+        if let Some(index) = self.text.get(text) {
+            return self.get(*index);
+        }
+
+        None
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Machine {
-    pub function: HashMap<String, FunctionKind>,
-    structure: HashMap<String, StructureMap>,
-    enumerate: HashMap<String, EnumerateMap>,
+    pub function: Symbol<Function>,
+    pub structure: Symbol<crate::construct::Structure>,
+    pub enumerate: Symbol<crate::construct::Enumerate>,
+    pub function_native: HashMap<String, FunctionNative>,
 }
 
 impl Machine {
     pub fn new(scope: &Scope) -> Result<Self, Error> {
         let mut machine = Self {
-            function: HashMap::default(),
-            structure: HashMap::default(),
-            enumerate: HashMap::default(),
+            function: Symbol::default(),
+            function_native: HashMap::default(),
+            structure: Symbol::default(),
+            enumerate: Symbol::default(),
         };
 
         machine.compile(scope)?;
@@ -65,24 +85,21 @@ impl Machine {
                         }
                     }
 
-                    self.function
-                        .insert(f.name.text.clone(), FunctionKind::Function(compile));
+                    self.function.insert(f.name.text.clone(), compile);
                 }
                 Declaration::FunctionNative(f) => {
-                    self.function
-                        .insert(f.name.clone(), FunctionKind::FunctionNative(f.clone()));
+                    self.function_native.insert(f.name.clone(), f.clone());
                 }
                 Declaration::Structure(s) => {
-                    let mut map = StructureMap::default();
-
                     for (name, function) in &s.function {
                         let compile = function.compile(scope)?;
 
-                        map.function.insert(name.to_string(), compile);
+                        self.function.insert(name.clone(), compile);
                     }
 
-                    self.structure.insert(s.name.text.clone(), map);
+                    self.structure.insert(s.name.text.clone(), s.clone());
                 }
+                /*
                 Declaration::Enumerate(s) => {
                     let mut map = EnumerateMap::default();
 
@@ -94,6 +111,7 @@ impl Machine {
 
                     self.enumerate.insert(s.name.text.clone(), map);
                 }
+                */
                 _ => {}
             }
         }
@@ -101,19 +119,15 @@ impl Machine {
         Ok(())
     }
 
-    fn get_function(&self, name: &str) -> FunctionKind {
-        if let Some(value) = self.function.get(name) {
-            value.clone()
-        } else {
-            panic!("Machine::get_function(): No function by the name of \"{name}\".")
-        }
+    pub fn get_function(&self, name: &str) -> Option<&Function> {
+        self.function.get_text(name)
     }
 
-    fn get_structure(&self, name: &str) -> StructureMap {
-        if let Some(value) = self.structure.get(name) {
+    fn get_function_index(&self, index: usize) -> Function {
+        if let Some(value) = self.function.get(index) {
             value.clone()
         } else {
-            panic!("Machine::get_structure(): No structure by the name of \"{name}\".")
+            panic!("Machine::get_function(): No function by the index of \"{index}\".")
         }
     }
 }
@@ -624,7 +638,7 @@ pub enum Instruction {
     Branch(usize),
     Return(bool),
     PushReference(usize),
-    PushStructure(StructureD),
+    PushStructure(usize),
     PushEnumerate(EnumerateD, String),
     PushArray(usize),
     PushTable(usize),
@@ -641,14 +655,8 @@ pub enum Instruction {
     LoadIndexArray,
     LoadIndexTable,
     Hide(usize),
-    Call(FunctionCall, usize),
-}
-
-#[derive(Debug, Clone)]
-pub enum FunctionCall {
-    Function(String),
-    FunctionStructure(String, String),
-    FunctionEnumerate(String, String),
+    Call(usize, usize),
+    CallNative(String, usize),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -769,10 +777,11 @@ impl Function {
                     let value = frame.load_pointer(index);
                     frame.push(Value::Reference(value));
                 }
-                Instruction::PushStructure(structure) => {
-                    let mut s = Structure::new(structure.name.text.clone());
+                Instruction::PushStructure(index) => {
+                    let index = machine.structure.get(*index).unwrap();
+                    let mut s = Structure::new(index.name.text.clone());
 
-                    for variable in &structure.variable {
+                    for variable in &index.variable {
                         s.data
                             .insert(variable.0.to_string(), Rc::new(RefCell::new(frame.pop())));
                     }
@@ -889,37 +898,26 @@ impl Function {
                 Instruction::Hide(index) => {
                     frame.hide(index);
                 }
-                Instruction::Call(call, arity) => match call {
-                    FunctionCall::Function(name) => {
-                        let function = machine.get_function(name);
-                        let argument = Argument::new(&mut frame, *arity);
+                Instruction::Call(index, arity) => {
+                    let function = machine.get_function_index(*index);
+                    let argument = Argument::new(&mut frame, *arity);
 
-                        let value = match function {
-                            FunctionKind::Function(function) => {
-                                function.execute(machine, argument.buffer)
-                            }
-                            FunctionKind::FunctionNative(function_native) => {
-                                (function_native.call)(machine, argument)
-                            }
-                        };
+                    let value = function.execute(machine, argument.buffer);
 
-                        if let Some(value) = value {
-                            frame.push(value);
-                        }
+                    if let Some(value) = value {
+                        frame.push(value);
                     }
-                    FunctionCall::FunctionStructure(structure, name) => {
-                        let structure = machine.get_structure(structure);
-                        let function = structure.function.get(name).unwrap();
-                        let argument = Argument::new(&mut frame, *arity);
+                }
+                Instruction::CallNative(name, arity) => {
+                    let function = machine.function_native.get(name).unwrap();
+                    let argument = Argument::new(&mut frame, *arity);
 
-                        let value = function.execute(machine, argument.buffer);
+                    let value = (function.call)(machine, argument);
 
-                        if let Some(value) = value {
-                            frame.push(value);
-                        }
+                    if let Some(value) = value {
+                        frame.push(value);
                     }
-                    FunctionCall::FunctionEnumerate(enumerate, name) => todo!(),
-                },
+                }
                 Instruction::Not => {
                     let a = frame.pop_boolean();
                     frame.push(Value::Boolean(!a));

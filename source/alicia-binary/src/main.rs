@@ -1,8 +1,8 @@
-mod server;
+//mod server;
 
 //================================================================
 
-use crate::server::server_main;
+//use crate::server::server_main;
 use alicia::prelude::*;
 use thiserror::Error;
 
@@ -90,16 +90,9 @@ fn alicia_run(path: &str, main: &str) -> Result<(), CommandError> {
     let instance = Builder::default().with_file(path.to_string())?;
     let mut instance = instance.build()?;
 
-    if let Some(function) = instance.machine.function.get(main).cloned() {
-        if let FunctionKind::Function(function) = function {
-            function.execute(&mut instance.machine, vec![]);
-            Ok(())
-        } else {
-            Err(CommandError::InvalidFunction(
-                main.to_string(),
-                path.to_string(),
-            ))
-        }
+    if let Some(function) = instance.machine.get_function(main).cloned() {
+        function.execute(&mut instance.machine, vec![]);
+        Ok(())
     } else {
         Err(CommandError::MissingFunction(
             main.to_string(),
@@ -133,7 +126,7 @@ fn main() {
                 }
             }
             Command::Server => {
-                smol::block_on(async { server_main().await });
+                //smol::block_on(async { server_main().await });
             }
         },
         Err(error) => {

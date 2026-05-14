@@ -11,38 +11,51 @@ use crate::token::*;
 
 //================================================================
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::rc::Rc;
 
 //================================================================
+
+#[derive(Debug, Copy, Clone, Default)]
+struct Index {
+    variable: usize,
+    function: usize,
+    structure: usize,
+    enumerate: usize,
+}
+
+pub type ScopePointer = Rc<RefCell<Scope>>;
 
 #[derive(Debug, Clone)]
 pub struct Scope {
     pub source: Vec<Source>,
-    pub symbol: HashMap<String, Declaration>,
-    pub parent: Option<Box<Self>>,
-    pub slot: usize,
+    pub symbol: BTreeMap<String, Declaration>,
+    pub parent: Option<ScopePointer>,
+    pub index: Index,
 }
 
 impl Scope {
-    pub fn new(parent: Option<Box<Self>>) -> Self {
+    pub fn new(parent: Option<ScopePointer>) -> Self {
         let source = if let Some(parent) = &parent {
-            parent.source.clone()
+            parent.borrow().source.clone()
         } else {
             Vec::default()
         };
 
-        let slot = if let Some(parent) = &parent {
-            parent.slot
+        let index = if let Some(parent) = &parent {
+            parent.borrow().index
         } else {
-            usize::default()
+            Index::default()
         };
 
         Self {
             source,
-            symbol: HashMap::default(),
+            symbol: BTreeMap::default(),
             parent,
-            slot,
+            index,
         }
     }
 
@@ -112,7 +125,7 @@ impl Scope {
         //);
         //function_add!(scope, test);
 
-        let mut scope_clone = self.clone();
+        let scope_clone = Rc::new(RefCell::new(self.clone()));
 
         for (_, value) in self.symbol.clone() {
             // TO-DO this is quite bad. I think in a future design we should make a difference
@@ -120,23 +133,26 @@ impl Scope {
             // everything in-place.
             match value {
                 Declaration::Function(mut function) => {
-                    function.analyze(&mut scope_clone)?;
+                    function.analyze(scope_clone.clone())?;
                     scope_clone
+                        .borrow_mut()
                         .set_declaration(function.name.clone(), Declaration::Function(function));
                 }
                 Declaration::Structure(mut structure) => {
-                    structure.analyze(&mut scope_clone)?;
+                    structure.analyze(scope_clone.clone())?;
                     scope_clone
+                        .borrow_mut()
                         .set_declaration(structure.name.clone(), Declaration::Structure(structure));
                 }
                 Declaration::Enumerate(mut enumerate) => {
-                    enumerate.analyze(&mut scope_clone)?;
+                    enumerate.analyze(scope_clone.clone())?;
                     scope_clone
+                        .borrow_mut()
                         .set_declaration(enumerate.name.clone(), Declaration::Enumerate(enumerate));
                 }
                 Declaration::Definition(mut definition) => {
-                    definition.analyze(&mut scope_clone)?;
-                    scope_clone.set_declaration(
+                    definition.analyze(&mut scope_clone.borrow_mut())?;
+                    scope_clone.borrow_mut().set_declaration(
                         definition.name.clone(),
                         Declaration::Definition(definition),
                     );
@@ -145,7 +161,7 @@ impl Scope {
             }
         }
 
-        Ok(scope_clone)
+        Ok(scope_clone.borrow().clone())
     }
 
     fn format_internal(mut argument: Argument) -> Result<String, Error> {
@@ -246,21 +262,22 @@ impl Scope {
         println!("scope: {:#?}", self.symbol);
 
         if let Some(parent) = &self.parent {
-            parent.print();
+            parent.borrow().print();
         }
     }
 
-    pub fn get_declaration(&self, name: Identifier) -> Option<&Declaration> {
+    pub fn get_declaration(&self, name: Identifier) -> Option<Declaration> {
         if let Some(declaration) = self.symbol.get(&name.text) {
-            Some(declaration)
+            Some(declaration.clone())
         } else if let Some(parent) = &self.parent {
+            let parent = parent.borrow();
             parent.get_declaration(name)
         } else {
             None
         }
     }
 
-    pub fn get_function(&self, name: Identifier) -> Option<&Function> {
+    pub fn get_function(&self, name: Identifier) -> Option<Function> {
         if let Some(d) = self.get_declaration(name)
             && let Declaration::Function(f) = d
         {
@@ -270,7 +287,7 @@ impl Scope {
         }
     }
 
-    pub fn get_function_native(&self, name: Identifier) -> Option<&FunctionNative> {
+    pub fn get_function_native(&self, name: Identifier) -> Option<FunctionNative> {
         if let Some(d) = self.get_declaration(name)
             && let Declaration::FunctionNative(f) = d
         {
@@ -280,7 +297,7 @@ impl Scope {
         }
     }
 
-    pub fn get_structure(&self, name: Identifier) -> Option<&Structure> {
+    pub fn get_structure(&self, name: Identifier) -> Option<Structure> {
         if let Some(d) = self.get_declaration(name)
             && let Declaration::Structure(s) = d
         {
@@ -290,7 +307,7 @@ impl Scope {
         }
     }
 
-    pub fn get_enumerate(&self, name: Identifier) -> Option<&Enumerate> {
+    pub fn get_enumerate(&self, name: Identifier) -> Option<Enumerate> {
         if let Some(d) = self.get_declaration(name)
             && let Declaration::Enumerate(e) = d
         {
@@ -304,13 +321,28 @@ impl Scope {
         self.symbol.insert(name.text, value);
     }
 
-    pub fn get_slot(&self) -> usize {
-        self.slot
+    pub fn get_index_variable(&self) -> usize {
+        self.index.variable
     }
 
-    pub fn get_and_add_slot(&mut self) -> usize {
-        self.slot += 1;
-        self.slot - 1
+    pub fn add_index_variable(&mut self) -> usize {
+        self.index.variable += 1;
+        self.index.variable - 1
+    }
+
+    pub fn add_index_function(&mut self) -> usize {
+        self.index.function += 1;
+        self.index.function - 1
+    }
+
+    pub fn add_index_structure(&mut self) -> usize {
+        self.index.structure += 1;
+        self.index.structure - 1
+    }
+
+    pub fn add_index_enumerate(&mut self) -> usize {
+        self.index.enumerate += 1;
+        self.index.enumerate - 1
     }
 }
 

@@ -2,7 +2,6 @@ use crate::buffer::*;
 use crate::error::*;
 use crate::helper::*;
 use crate::machine::Function as MFunction;
-use crate::machine::FunctionCall;
 use crate::machine::Instruction;
 use crate::machine::Value;
 use crate::scope::*;
@@ -10,9 +9,11 @@ use crate::token::*;
 
 //================================================================
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::rc::Rc;
 
 //================================================================
 
@@ -188,9 +189,9 @@ impl Condition {
         })
     }
 
-    pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze(&mut self, scope: ScopePointer) -> Result<(), Error> {
         if let Some(value) = &self.value {
-            let kind = value.analyze(scope, None)?;
+            let kind = value.analyze(&mut scope.borrow_mut(), None)?;
 
             if kind != ExpressionKind::Boolean {
                 panic!("condition expression kind is not a boolean");
@@ -198,7 +199,7 @@ impl Condition {
         }
 
         if let Some(child) = &mut self.child {
-            child.analyze(scope)?;
+            child.analyze(scope.clone())?;
         }
 
         self.block.analyze(scope, Vec::default(), false)?;
@@ -339,12 +340,12 @@ impl Iteration {
         })
     }
 
-    pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze(&mut self, scope: ScopePointer) -> Result<(), Error> {
         if let Some(value) = &self.value {
             match value {
-                IterationValue::Iterational(assignment) => assignment.analyze(scope)?,
+                IterationValue::Iterational(assignment) => assignment.analyze(&scope.borrow())?,
                 IterationValue::Conditional(expression) => {
-                    expression.analyze(scope, None)?;
+                    expression.analyze(&scope.borrow(), None)?;
                 }
             };
         }
@@ -1093,7 +1094,9 @@ impl Expression {
                         value.compile(scope, function)?;
                     }
 
-                    function.push(Instruction::PushStructure(structure.clone()))
+                    println!("push structure: {:?}", structure.index);
+
+                    function.push(Instruction::PushStructure(structure.index.unwrap()))
                 }
                 ExpressionValue::Enumerate(value) => {
                     let enumerate = scope.get_enumerate(value.name.clone()).unwrap();
@@ -1125,13 +1128,11 @@ impl Expression {
                 _ => todo!(),
             },
             ExpressionData::Operation(operator, a, b) => {
-                let kind = a.analyze(scope, None)?;
-
                 a.compile(scope, function)?;
 
                 if let ExpressionOperator::Dot = operator {
-                    println!("{b:#?}");
                     let b = b.analyze_identifier()?;
+
                     function.push(Instruction::LoadField(b.text));
 
                     return Ok(());
@@ -1188,12 +1189,17 @@ impl Expression {
                 match operator {
                     ExpressionOperator::Invocation(list) => match kind {
                         ExpressionKind::Function(identifier) => {
+                            let f = scope.get_function(identifier.clone()).unwrap();
+
+                            println!("{} index: {:?}", identifier, f.index);
+
                             for argument in list.iter().rev() {
                                 argument.compile(scope, function)?;
                             }
 
                             function.push(Instruction::Call(
-                                FunctionCall::Function(identifier.text),
+                                f.index.unwrap(),
+                                //FunctionCall::Function(identifier.text),
                                 list.len(),
                             ))
                         }
@@ -1202,10 +1208,7 @@ impl Expression {
                                 argument.compile(scope, function)?;
                             }
 
-                            function.push(Instruction::Call(
-                                FunctionCall::Function(identifier.text),
-                                list.len(),
-                            ))
+                            function.push(Instruction::CallNative(identifier.text, list.len()))
                         }
                         _ => panic!("invalid value for invocation operator {value:?}"),
                     },
@@ -1294,7 +1297,7 @@ impl Definition {
         }
 
         self.kind_e = Some(source.clone());
-        self.index = Some(scope.get_and_add_slot());
+        self.index = Some(scope.add_index_variable());
 
         scope.set_declaration(self.name.clone(), Declaration::Definition(self.clone()));
 
@@ -1426,7 +1429,7 @@ impl Flow {
 pub struct Block {
     pub span: TokenSpan,
     pub code: Vec<Statement>,
-    pub scope: Option<Scope>,
+    pub scope: Option<ScopePointer>,
 }
 
 impl Block {
@@ -1456,15 +1459,15 @@ impl Block {
 
     pub fn analyze(
         &mut self,
-        scope: &mut Scope,
+        scope: ScopePointer,
         argument: Vec<Variable>,
         iteration: bool,
     ) -> Result<Flow, Error> {
-        let mut scope_block = Scope::new(Some(Box::new(scope.clone())));
+        let scope_block = Rc::new(RefCell::new(Scope::new(Some(scope))));
 
         for variable in &argument {
-            let kind = variable.analyze(&scope_block)?;
-            let index = scope_block.get_and_add_slot();
+            let kind = variable.analyze(&scope_block.borrow())?;
+            let index = scope_block.borrow_mut().add_index_variable();
 
             let definition = Definition {
                 span: variable.span.clone(),
@@ -1479,20 +1482,22 @@ impl Block {
                 index: Some(index),
             };
 
-            scope_block.set_declaration(variable.name.clone(), Declaration::Definition(definition));
+            scope_block
+                .borrow_mut()
+                .set_declaration(variable.name.clone(), Declaration::Definition(definition));
         }
 
         for statement in &self.code {
             match statement {
-                Statement::Function(function) => scope_block.set_declaration(
+                Statement::Function(function) => scope_block.borrow_mut().set_declaration(
                     function.name.clone(),
                     Declaration::Function(function.clone()),
                 ),
-                Statement::Structure(structure) => scope_block.set_declaration(
+                Statement::Structure(structure) => scope_block.borrow_mut().set_declaration(
                     structure.name.clone(),
                     Declaration::Structure(structure.clone()),
                 ),
-                Statement::Enumerate(enumerate) => scope_block.set_declaration(
+                Statement::Enumerate(enumerate) => scope_block.borrow_mut().set_declaration(
                     enumerate.name.clone(),
                     Declaration::Enumerate(enumerate.clone()),
                 ),
@@ -1503,22 +1508,22 @@ impl Block {
         for statement in &mut self.code {
             match statement {
                 Statement::Definition(definition) => {
-                    definition.analyze(&mut scope_block)?;
+                    definition.analyze(&mut scope_block.borrow_mut())?;
                 }
                 Statement::Assignment(assignment) => {
-                    assignment.analyze(&scope_block)?;
+                    assignment.analyze(&scope_block.borrow())?;
                 }
                 Statement::Expression(expression) => {
-                    expression.analyze(&scope_block, None)?;
+                    expression.analyze(&scope_block.borrow(), None)?;
                 }
                 Statement::Condition(condition) => {
-                    condition.analyze(&mut scope_block)?;
+                    condition.analyze(scope_block.clone())?;
                 }
                 Statement::Iteration(iteration) => {
-                    iteration.analyze(&mut scope_block)?;
+                    iteration.analyze(scope_block.clone())?;
                 }
                 Statement::Block(block) => {
-                    block.analyze(&mut scope_block, Vec::default(), false)?;
+                    block.analyze(scope_block.clone(), Vec::default(), false)?;
                 }
                 Statement::Skip => {
                     if !iteration {
@@ -1533,13 +1538,13 @@ impl Block {
                     }
                 }
                 Statement::Return(r) => {
-                    r.analyze(&scope_block)?;
+                    r.analyze(&scope_block.borrow())?;
                 }
                 _ => {}
             }
         }
 
-        let flow = self.analyze_flow(&scope_block, false)?;
+        let flow = self.analyze_flow(&scope_block.borrow(), false)?;
 
         self.scope = Some(scope_block);
 
@@ -1570,32 +1575,32 @@ impl Block {
     #[rustfmt::skip]
     pub fn compile(&self, scope: &Scope, function: &mut MFunction, root: bool, header: Option<usize>) -> Result<(), Error> {
         let block = self.scope.as_ref().unwrap();
-        let mut variable_a = scope.get_slot();
-        let mut variable_b = scope.get_slot();
+        let mut variable_a = scope.get_index_variable();
+        let mut variable_b = scope.get_index_variable();
         let mut exit = Vec::new();
 
         for statement in &self.code {
             match statement {
                 Statement::Definition(definition) => {
-                    definition.compile(block, function)?;
+                    definition.compile(&block.borrow(), function)?;
 
                     if !root {
                         variable_b += 1;
                     }
                 },
-                Statement::Assignment(assignment) => { assignment.compile(block, function)?; },
-                Statement::Expression(expression) => { expression.compile(block, function)?; },
-                Statement::Condition(condition)   => { condition.compile(block, function)?;  },
-                Statement::Iteration(iteration)   => { iteration.compile(block, function)?;  },
-                Statement::Block(b)               => { b.compile(block, function, false, None)?; },
-                Statement::Skip                   => if let Some(header) = header {
+                Statement::Assignment(assignment) => { assignment.compile(&block.borrow(), function)?; },
+                Statement::Expression(expression) => { expression.compile(&block.borrow(), function)?; },
+                Statement::Condition(condition)   => { condition.compile(&block.borrow(), function)?;  },
+                Statement::Iteration(iteration)   => { iteration.compile(&block.borrow(), function)?;  },
+                Statement::Block(b)               => { b.compile(&block.borrow(), function, false, None)?; },
+                Statement::Skip => if let Some(header) = header {
                     for v in variable_a..variable_b {
                         function.push(Instruction::Hide(v));
                     }
 
                     function.push(Instruction::Jump(header));
                 },
-                Statement::Exit                   => {
+                Statement::Exit => {
                     for v in variable_a..variable_b {
                         function.push(Instruction::Hide(v));
                     }
@@ -1604,7 +1609,7 @@ impl Block {
 
                     function.push(Instruction::Null);
                 },
-                Statement::Return(r)              => r.compile(block, function)?,
+                Statement::Return(r) => r.compile(&block.borrow(), function)?,
                 _ => {}
             }
         }
@@ -1631,6 +1636,7 @@ pub struct Function {
     pub leave: Option<Kind>,
     pub block: Block,
     pub method: bool,
+    pub index: Option<usize>,
 }
 
 impl Function {
@@ -1704,15 +1710,18 @@ impl Function {
                 leave,
                 block,
                 method,
+                index: None,
             })
         })
     }
 
-    pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
-        let flow = self.block.analyze(scope, self.enter.clone(), false)?;
+    pub fn analyze(&mut self, scope: ScopePointer) -> Result<(), Error> {
+        let flow = self
+            .block
+            .analyze(scope.clone(), self.enter.clone(), false)?;
 
         let target = if let Some(leave) = &self.leave {
-            leave.type_check(scope)?
+            leave.type_check(&scope.borrow())?
         } else {
             ExpressionKind::Null
         };
@@ -1720,11 +1729,13 @@ impl Function {
 
         if source != target {
             return Error::new_info(
-                ErrorInfo::new_point(self.span.clone(), None, scope.get_active_source()),
+                ErrorInfo::new_point(self.span.clone(), None, scope.borrow().get_active_source()),
                 ErrorKind::IncorrectKind(target, source),
                 None,
             );
         }
+
+        self.index = Some(scope.borrow_mut().add_index_function());
 
         Ok(())
     }
@@ -2007,13 +2018,13 @@ impl TableD {
 #[derive(Debug, Clone)]
 pub struct StructureD {
     pub name: Identifier,
-    pub list: HashMap<String, Expression>,
+    pub list: BTreeMap<String, Expression>,
 }
 
 impl StructureD {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::StructureD, |token_buffer| {
-            let mut list = HashMap::new();
+            let mut list = BTreeMap::new();
 
             let name = token_buffer.want_identifier()?;
 
@@ -2064,6 +2075,7 @@ pub struct Structure {
     pub parent: Option<Identifier>,
     pub variable: BTreeMap<String, Variable>,
     pub function: BTreeMap<String, Function>,
+    pub index: Option<usize>,
 }
 
 impl Structure {
@@ -2133,18 +2145,21 @@ impl Structure {
                 parent,
                 variable,
                 function,
+                index: None,
             })
         })
     }
 
-    pub fn analyze(&mut self, scope: &mut Scope) -> Result<ExpressionKind, Error> {
+    pub fn analyze(&mut self, scope: ScopePointer) -> Result<ExpressionKind, Error> {
         for variable in self.variable.values() {
-            variable.analyze(scope)?;
+            variable.analyze(&scope.borrow())?;
         }
 
         for function in self.function.values_mut() {
-            function.analyze(scope)?;
+            function.analyze(scope.clone())?;
         }
+
+        self.index = Some(scope.borrow_mut().add_index_structure());
 
         Ok(ExpressionKind::Structure(self.name.clone()))
     }
@@ -2250,9 +2265,9 @@ impl Enumerate {
         })
     }
 
-    pub fn analyze(&mut self, scope: &mut Scope) -> Result<(), Error> {
+    pub fn analyze(&mut self, scope: ScopePointer) -> Result<(), Error> {
         for function in self.function.values_mut() {
-            function.analyze(scope)?;
+            function.analyze(scope.clone())?;
         }
 
         Ok(())
