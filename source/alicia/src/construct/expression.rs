@@ -3,6 +3,7 @@ use super::enumerate::*;
 use super::statement::*;
 use super::structure::*;
 use super::table::*;
+use super::tuple::*;
 
 //================================================================
 
@@ -37,7 +38,7 @@ pub enum ExpressionKind {
     Enumerate(Identifier),
     Array(Box<ExpressionKind>),
     Table(Box<ExpressionKind>, Box<ExpressionKind>),
-    //Tuple(Vec<ExpressionKind>),
+    Tuple(Vec<ExpressionKind>),
 }
 
 impl PartialEq for ExpressionKind {
@@ -69,6 +70,7 @@ pub enum ExpressionValue {
     Enumerate(EnumerateD),
     Array(ArrayD),
     Table(TableD),
+    Tuple(TupleD),
 }
 
 impl Display for ExpressionValue {
@@ -145,6 +147,7 @@ impl ExpressionValue {
             Self::Enumerate(x)  => ExpressionKind::Enumerate(x.name.clone()),
             Self::Array(x)      => x.analyze(scope, infer)?,
             Self::Table(x)      => x.analyze(scope, infer)?,
+            Self::Tuple(x)      => x.analyze(scope, infer)?,
         })
     }
 }
@@ -286,10 +289,28 @@ impl Expression {
         token_buffer.parse(ErrorHint::Expression, |token_buffer| {
             let mut value_a = if token_buffer.want_peek(TokenKind::ParenthesisBegin) {
                 token_buffer.want(TokenKind::ParenthesisBegin)?;
-                let value = Self::parse_token(token_buffer, 0.0)?;
+
+                let mut value = Vec::new();
+
+                Statement::parse_comma(
+                    token_buffer,
+                    TokenKind::ParenthesisClose,
+                    |token_buffer| {
+                        value.push(Self::parse_token(token_buffer, 0.0)?);
+                        Ok(())
+                    },
+                )?;
+
                 token_buffer.want(TokenKind::ParenthesisClose)?;
 
-                value
+                if value.len() == 1 {
+                    value.first().unwrap().clone()
+                } else {
+                    Expression::new(
+                        token_buffer,
+                        ExpressionData::Value(ExpressionValue::Tuple(TupleD::new(value))),
+                    )
+                }
             } else if token_buffer.want_peek(TokenKind::SquareBegin) {
                 let value = ExpressionData::Value(ExpressionValue::from_token(token_buffer)?);
 
@@ -607,6 +628,10 @@ impl Expression {
                                                 );
                                             }
                                         }
+                                    } else {
+                                        for parameter in list {
+                                            parameter.analyze(scope, infer.clone())?;
+                                        }
                                     }
 
                                     Ok(function.leave.into_kind(scope))
@@ -618,11 +643,23 @@ impl Expression {
                         }
                     }
                     ExpressionOperator::Indexation(expression) => {
-                        // TO-DO check if expression is an integer type, return the index type (a is array, a[0] is integer)
+                        let kind = expression.as_ref().unwrap().analyze(scope, None)?;
 
                         match value {
-                            ExpressionKind::Array(expression_kind) => Ok(*expression_kind),
-                            ExpressionKind::Table(a, b) => Ok(*b),
+                            ExpressionKind::Array(expression_kind) => {
+                                if kind != ExpressionKind::Integer {
+                                    panic!("non-integer index for array")
+                                }
+
+                                Ok(*expression_kind)
+                            }
+                            ExpressionKind::Table(a, b) => {
+                                if kind != *a {
+                                    panic!("key mis-match for table")
+                                }
+
+                                Ok(*b)
+                            }
                             _ => panic!("indexing a non-array value"),
                         }
                     }
@@ -765,6 +802,13 @@ impl Expression {
                     }
 
                     function.push(Instruction::PushTable(value.list.len()))
+                }
+                ExpressionValue::Tuple(value) => {
+                    for l in value.list.iter().rev() {
+                        l.compile(scope, function)?;
+                    }
+
+                    function.push(Instruction::PushTuple(value.list.len()))
                 }
                 _ => todo!(),
             },

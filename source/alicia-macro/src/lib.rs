@@ -2,7 +2,6 @@ use proc_macro::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use syn::Expr;
-use syn::Ident;
 use syn::ItemFn;
 use syn::Token;
 use syn::parse_macro_input;

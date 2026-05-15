@@ -12,4 +12,5 @@ pub mod resolve;
 pub mod statement;
 pub mod structure;
 pub mod table;
+pub mod tuple;
 pub mod variable;

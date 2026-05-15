@@ -85,9 +85,9 @@ impl Machine {
                     let compile = f.compile(scope)?;
 
                     //if f.name.text == "main" {
-                    for (i, c) in compile.buffer.iter().enumerate() {
-                        println!("{i}: {c:#?}");
-                    }
+                    //for (i, c) in compile.buffer.iter().enumerate() {
+                    //    println!("{i}: {c:#?}");
+                    //}
                     //}
 
                     self.function.insert(f.name.text.clone(), compile);
@@ -307,6 +307,7 @@ pub enum Value {
     Reference(ValuePointer),
     Array(Array),
     Table(Table),
+    Tuple(Tuple),
 }
 
 impl PartialEq for Value {
@@ -434,6 +435,23 @@ impl Table {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tuple {
+    data: Vec<ValuePointer>,
+}
+
+impl Tuple {
+    pub fn new() -> Self {
+        Self {
+            data: Vec::default(),
+        }
+    }
+
+    pub fn push(&mut self, value: Value) {
+        self.data.push(Rc::new(RefCell::new(value)));
+    }
+}
+
 impl Display for Value {
     #[rustfmt::skip]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -529,7 +547,24 @@ impl Display for Value {
                 }
 
                 formatter.write_str("}")
-            }
+            },
+            Value::Tuple(value) => {
+                formatter.write_str("(")?;
+
+                let length = value.data.len();
+
+                for (i, v) in value.data.iter().enumerate() {
+                    let v = v.borrow();
+
+                    if i == length - 1 {
+                        formatter.write_str(&format!("{v}"))?;
+                    } else {
+                        formatter.write_str(&format!("{v}, "))?;
+                    }
+                }
+
+                formatter.write_str(")")
+            },
         }
     }
 }
@@ -571,6 +606,7 @@ impl Value {
             Self::Reference(_) => ValueKind::Reference,
             Self::Array(_)     => ValueKind::Array,
             Self::Table(_)     => ValueKind::Table,
+            Self::Tuple(_)     => ValueKind::Tuple,
         }
     }
 }
@@ -621,6 +657,7 @@ pub enum ValueKind {
     Reference,
     Array,
     Table,
+    Tuple,
 }
 
 impl Display for ValueKind {
@@ -636,6 +673,7 @@ impl Display for ValueKind {
             Self::Reference => formatter.write_str("Reference"),
             Self::Array     => formatter.write_str("Array"),
             Self::Table     => formatter.write_str("Table"),
+            Self::Tuple     => formatter.write_str("Tuple"),
         }
     }
 }
@@ -666,7 +704,7 @@ pub enum Instruction {
     PushEnumerate(EnumerateD, String),
     PushArray(usize),
     PushTable(usize),
-    //PushTuple,
+    PushTuple(usize),
     //PushRange,
     Push(Value),
     Save(usize),
@@ -869,6 +907,15 @@ impl Function {
                     }
 
                     frame.push(Value::Table(t));
+                }
+                Instruction::PushTuple(arity) => {
+                    let mut t = Tuple::new();
+
+                    for _ in 0..arity {
+                        t.push(frame.pop());
+                    }
+
+                    frame.push(Value::Tuple(t));
                 }
                 Instruction::Push(value) => {
                     frame.push(value.clone());

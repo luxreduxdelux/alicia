@@ -169,7 +169,7 @@ impl Block {
     #[rustfmt::skip]
     pub fn compile(&self, scope: &Scope, function: &mut MFunction, root: bool, header: Option<usize>) -> Result<(), Error> {
         let block = self.scope.as_ref().unwrap();
-        let mut variable_a = scope.get_index_variable();
+        let variable_a = scope.get_index_variable();
         let mut variable_b = scope.get_index_variable();
         let mut exit = Vec::new();
 

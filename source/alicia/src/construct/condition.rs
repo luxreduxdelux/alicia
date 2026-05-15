@@ -108,8 +108,6 @@ impl Condition {
     }
 
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
-        let head = function.cursor();
-
         let branch = if let Some(value) = &self.value {
             value.compile(scope, function)?;
 

@@ -35,9 +35,17 @@ impl Assignment {
     }
 
     pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
-        self.value.analyze(scope, None)?;
+        let source = self.value.analyze(scope, None)?;
+        let target = self.path.analyze(scope, None)?;
 
-        // TO-DO analyze if it's correct to load the value onto our path.
+        // TO-DO highlight source code where error was made
+        if source != target {
+            return Error::new_info(
+                ErrorInfo::new_point(self.span.clone(), None, scope.get_active_source()),
+                ErrorKind::IncorrectKind(target, source),
+                None,
+            );
+        }
 
         Ok(())
     }
