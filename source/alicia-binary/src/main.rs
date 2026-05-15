@@ -91,7 +91,7 @@ fn alicia_run(path: &str, main: &str) -> Result<(), CommandError> {
     let mut instance = instance.build()?;
 
     if let Some(function) = instance.machine.get_function(main).cloned() {
-        function.execute(&mut instance.machine, vec![]);
+        function.execute(&mut instance.machine, vec![])?;
         Ok(())
     } else {
         Err(CommandError::MissingFunction(

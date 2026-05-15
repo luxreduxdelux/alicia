@@ -1,6 +1,7 @@
-use crate::construct::Enumerate as EnumerateD;
-use crate::construct::Structure as StructureD;
+use crate::construct::enumerate::Enumerate as EnumerateD;
+use crate::construct::structure::Structure as StructureD;
 use crate::error::Error;
+use crate::error::ErrorKind;
 use crate::helper::Identifier;
 use crate::helper::Point;
 use crate::prelude::ExpressionKind;
@@ -58,8 +59,8 @@ impl<T> Symbol<T> {
 #[derive(Debug, Clone)]
 pub struct Machine {
     function: Symbol<Function>,
-    structure: Symbol<crate::construct::Structure>,
-    enumerate: Symbol<crate::construct::Enumerate>,
+    structure: Symbol<StructureD>,
+    enumerate: Symbol<EnumerateD>,
     function_native: HashMap<String, FunctionNative>,
 }
 
@@ -83,11 +84,11 @@ impl Machine {
                 Declaration::Function(f) => {
                     let compile = f.compile(scope)?;
 
-                    if f.name.text == "main" {
-                        for (i, c) in compile.buffer.iter().enumerate() {
-                            println!("{i}: {c:#?}");
-                        }
+                    //if f.name.text == "main" {
+                    for (i, c) in compile.buffer.iter().enumerate() {
+                        println!("{i}: {c:#?}");
                     }
+                    //}
 
                     self.function.insert(f.name.text.clone(), compile);
                 }
@@ -134,12 +135,22 @@ impl Machine {
 
 #[derive(Debug, Clone, Default)]
 struct Frame {
+    name: String,
     table: HashMap<usize, ValuePointer>,
     stack: Vec<ValuePointer>,
+    buffer: Vec<Instruction>,
     cursor: usize,
 }
 
 impl Frame {
+    fn new(name: String, buffer: Vec<Instruction>) -> Self {
+        Self {
+            name,
+            buffer,
+            ..Default::default()
+        }
+    }
+
     fn save(&mut self, index: usize, value: Value) {
         if self.table.contains_key(&index) {
             let v = self.table.get(&index).unwrap();
@@ -675,11 +686,19 @@ pub enum Instruction {
 
 #[derive(Debug, Clone, Default)]
 pub struct Function {
-    pub buffer: Vec<Instruction>,
+    name: String,
+    buffer: Vec<Instruction>,
     enter: Vec<String>,
 }
 
 impl Function {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            ..Default::default()
+        }
+    }
+
     pub fn push(&mut self, instruction: Instruction) {
         self.buffer.push(instruction);
     }
@@ -700,8 +719,22 @@ impl Function {
         self.enter.push(parameter);
     }
 
-    pub fn execute(&self, machine: &mut Machine, argument: Vec<Value>) -> Option<Value> {
-        let mut frame = Frame::default();
+    fn error(&self, text: &str, stack: &mut [Frame]) {
+        println!("error: {text}");
+
+        for (i, f) in stack.iter().rev().enumerate() {
+            println!("  {}: {}\n    at (source:{})", i, f.name, f.cursor);
+        }
+    }
+
+    pub fn execute(
+        &self,
+        machine: &mut Machine,
+        argument: Vec<Value>,
+    ) -> Result<Option<Value>, Error> {
+        let mut stack = vec![Frame::new(self.name.clone(), self.buffer.clone())];
+        let stack_ref = &mut stack as *mut Vec<Frame>;
+        let mut frame = stack.last_mut().unwrap();
 
         if argument.len() != self.enter.len() {
             panic!("incorrect argument count");
@@ -711,7 +744,9 @@ impl Function {
             frame.save(i, a.clone());
         }
 
-        while let Some(instruction) = self.buffer.get(frame.cursor) {
+        while let Some(instruction) = frame.buffer.get(frame.cursor).cloned() {
+            //println!("enter instruction: {instruction:?}");
+
             match instruction {
                 Instruction::Null => {}
                 Instruction::Add => {
@@ -788,13 +823,14 @@ impl Function {
                     }
                 }
                 Instruction::PushReference(index) => {
-                    let value = frame.load_pointer(index);
+                    let value = frame.load_pointer(&index);
                     frame.push(Value::Reference(value));
                 }
                 Instruction::PushStructure(index) => {
-                    let index = machine.structure.get(*index).unwrap();
+                    let index = machine.structure.get(index).unwrap();
                     let mut s = Structure::new(index.name.text.clone());
 
+                    // TO-DO respect actual ordering
                     for variable in &index.variable {
                         //s.data
                         //    .insert(variable.0.to_string(), Rc::new(RefCell::new(frame.pop())));
@@ -804,7 +840,7 @@ impl Function {
                     frame.push(Value::Structure(s));
                 }
                 Instruction::PushEnumerate(enumerate, kind) => {
-                    let k = enumerate.variable.get(kind).unwrap();
+                    let k = enumerate.variable.get(&kind).unwrap();
                     let mut e = Enumerate::new(enumerate.name.text.clone(), kind.to_string());
 
                     for _ in k {
@@ -816,7 +852,7 @@ impl Function {
                 Instruction::PushArray(arity) => {
                     let mut a = Array::new();
 
-                    for _ in 0..*arity {
+                    for _ in 0..arity {
                         a.push(frame.pop());
                     }
 
@@ -825,7 +861,7 @@ impl Function {
                 Instruction::PushTable(arity) => {
                     let mut t = Table::new();
 
-                    for _ in 0..*arity {
+                    for _ in 0..arity {
                         let v = frame.pop();
                         let k = frame.pop();
 
@@ -839,7 +875,7 @@ impl Function {
                 }
                 Instruction::Save(index) => {
                     let value = frame.pop();
-                    frame.save(*index, value);
+                    frame.save(index, value);
                 }
                 Instruction::SaveReference => {
                     let value_r = frame.pop_reference();
@@ -854,7 +890,7 @@ impl Function {
                     if let Value::Structure(structure) = reference {
                         let field = structure
                             .data
-                            .get(*index)
+                            .get(index)
                             .expect(&format!("no field {index} for structure {structure:?}"));
 
                         frame.push(Value::Reference(field.clone()));
@@ -884,18 +920,27 @@ impl Function {
                     }
                 }
                 Instruction::Load(index) => {
-                    let value = frame.load(index);
+                    let value = frame.load(&index);
                     frame.push(value);
                 }
                 Instruction::LoadField(index) => {
                     let value = frame.pop_structure();
-                    let value = value.data.get(*index).unwrap().borrow().clone();
+                    let value = value.data.get(index).unwrap().borrow().clone();
                     frame.push(value);
                 }
                 Instruction::LoadIndexArray => {
                     let index = frame.pop_integer();
                     let array = frame.pop_array();
-                    frame.push(array.data[index as usize].borrow().clone());
+
+                    if index >= 0 && index < array.data.len() as i64 {
+                        frame.push(array.data[index as usize].borrow().clone());
+                    } else {
+                        return Error::new_kind(
+                            ErrorKind::IndexError(array.data.len(), index),
+                            None,
+                        );
+                        //self.error("index error", unsafe { &mut *stack_ref });
+                    }
                 }
                 Instruction::LoadIndexTable => {
                     let index = frame.pop();
@@ -911,21 +956,34 @@ impl Function {
                     //panic!("no value in table with a key of {index}")
                 }
                 Instruction::Hide(index) => {
-                    frame.hide(index);
+                    frame.hide(&index);
                 }
                 Instruction::Call(index, arity) => {
-                    let function = machine.get_function_index(*index);
-                    let argument = Argument::new(&mut frame, *arity);
+                    let function = machine.get_function_index(index);
+                    let argument = Argument::new(frame, arity);
+                    let mut f = Frame::new(function.name.clone(), function.buffer.clone());
 
-                    let value = function.execute(machine, argument.buffer);
-
-                    if let Some(value) = value {
-                        frame.push(value);
+                    if argument.buffer.len() != function.enter.len() {
+                        panic!("incorrect argument count");
                     }
+
+                    for (i, a) in argument.buffer.iter().enumerate() {
+                        f.save(i, a.clone());
+                    }
+
+                    stack.push(f);
+                    frame = stack.last_mut().unwrap();
+                    continue;
+
+                    //let value = function.execute(machine, argument.buffer);
+
+                    //if let Some(value) = value {
+                    //    frame.push(value);
+                    //}
                 }
                 Instruction::CallNative(name, arity) => {
-                    let function = machine.function_native.get(name).unwrap();
-                    let argument = Argument::new(&mut frame, *arity);
+                    let function = machine.function_native.get(&name).unwrap();
+                    let argument = Argument::new(frame, arity);
 
                     let value = (function.call)(machine, argument);
 
@@ -1054,30 +1112,44 @@ impl Function {
                     }
                 }
                 Instruction::Jump(j_cursor) => {
-                    frame.cursor = *j_cursor;
+                    frame.cursor = j_cursor;
                     continue;
                 }
                 Instruction::Branch(b_cursor) => {
                     let value = frame.pop_boolean();
 
                     if !value {
-                        frame.cursor = *b_cursor;
+                        frame.cursor = b_cursor;
                     }
                 }
                 Instruction::Return(value) => {
-                    if *value {
+                    if value {
                         let value = frame.pop();
-                        return Some(value);
+                        stack.pop();
+                        frame = stack.last_mut().unwrap();
+                        frame.push(value);
+
+                        //return Some(value);
                     } else {
-                        return None;
+                        stack.pop();
+                        frame = stack.last_mut().unwrap();
+
+                        //return None;
                     }
+
+                    //if value {
+                    //    let value = frame.pop();
+                    //    return Some(value);
+                    //} else {
+                    //    return None;
+                    //}
                 }
             }
 
             frame.cursor += 1;
         }
 
-        None
+        Ok(None)
     }
 }
 

@@ -1,0 +1,15 @@
+pub mod array;
+pub mod assignment;
+pub mod block;
+pub mod condition;
+pub mod definition;
+pub mod enumerate;
+pub mod expression;
+pub mod function;
+pub mod iteration;
+pub mod kind;
+pub mod resolve;
+pub mod statement;
+pub mod structure;
+pub mod table;
+pub mod variable;

@@ -1,5 +1,5 @@
 use crate::buffer::*;
-use crate::construct::ExpressionKind;
+use crate::construct::expression::ExpressionKind;
 use crate::helper::*;
 use crate::token::*;
 
@@ -339,4 +339,6 @@ pub enum ErrorKind {
     IncorrectIdentifierSymbol(String, char),
     #[error("was expecting a value of type \"{0:?}\", found \"{1:?}\" instead.")]
     IncorrectKind(ExpressionKind, ExpressionKind),
+    #[error("array is of size {0}, array index is {1} instead.")]
+    IndexError(usize, i64),
 }

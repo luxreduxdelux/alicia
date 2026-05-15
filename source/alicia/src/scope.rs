@@ -1,5 +1,8 @@
 use crate::buffer::*;
-use crate::construct::*;
+use crate::construct::definition::Definition;
+use crate::construct::enumerate::Enumerate;
+use crate::construct::function::Function;
+use crate::construct::structure::Structure;
 use crate::error::*;
 use crate::helper::*;
 use crate::machine::Argument;
@@ -13,7 +16,6 @@ use crate::token::*;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
 
