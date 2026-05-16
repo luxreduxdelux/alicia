@@ -233,9 +233,7 @@ fn run() -> Result<(), Error> {
     let builder = new_builder()?;
     let mut instance = builder.build()?;
 
-    let mut function = if let Some(function) = instance.machine.function.get("main").cloned()
-        && let FunctionKind::Function(function) = function
-    {
+    let mut function = if let Some(function) = instance.machine.get_function("main").cloned() {
         function
     } else {
         panic!("no main function")
@@ -259,15 +257,13 @@ fn run() -> Result<(), Error> {
     loop {
         let new = function.execute(&mut instance.machine, vec![]).unwrap();
 
-        if let Value::Boolean(new) = new {
+        if let Some(Value::Boolean(new)) = new {
             if new {
                 println!("restart");
                 let builder = new_builder()?;
                 instance = builder.build()?;
 
-                function = if let Some(function) = instance.machine.function.get("main").cloned()
-                    && let FunctionKind::Function(function) = function
-                {
+                function = if let Some(function) = instance.machine.get_function("main").cloned() {
                     function
                 } else {
                     panic!("no main function")

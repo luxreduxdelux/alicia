@@ -151,6 +151,16 @@ impl Frame {
         }
     }
 
+    fn error(&self, text: &str, stack: &[Frame]) {
+        println!("error: {text}");
+
+        println!("  {}: {}\n    at (source:{})", 0, self.name, self.cursor);
+
+        for (i, f) in stack.iter().rev().enumerate() {
+            println!("  {}: {}\n    at (source:{})", i + 1, f.name, f.cursor);
+        }
+    }
+
     fn save(&mut self, index: usize, value: Value) {
         if self.table.contains_key(&index) {
             let v = self.table.get(&index).unwrap();
@@ -174,7 +184,9 @@ impl Frame {
         if let Some(value) = self.table.get(index) {
             value.borrow().clone()
         } else {
-            panic!("Frame::load(): No value with an index of \"{index}\".")
+            self.panic(format!(
+                "Frame::load(): No value with an index of \"{index}\"."
+            ))
         }
     }
 
@@ -182,7 +194,9 @@ impl Frame {
         if let Some(value) = self.table.get(index) {
             value.clone()
         } else {
-            panic!("Frame::load_pointer(): No value with an index of \"{index}\".")
+            self.panic(format!(
+                "Frame::load_pointer(): No value with an index of \"{index}\"."
+            ))
         }
     }
 
@@ -286,8 +300,35 @@ impl Frame {
         }
     }
 
+    fn pop_tuple(&mut self) -> Tuple {
+        let pop = self.pop();
+
+        if let Value::Tuple(value) = pop {
+            value
+        } else {
+            self.panic(format!("Frame::pop_tuple(): Invalid value \"{pop:?}\"."))
+        }
+    }
+
+    fn print_buffer(&self) -> String {
+        let mut text = String::default();
+
+        for (i, c) in self.buffer.iter().enumerate() {
+            text.push_str(&format!("{i}: {c:#?}\n"));
+        }
+
+        text
+    }
+
     fn panic<T>(&self, mut text: String) -> T {
-        text.push_str(&format!("\n{:#?}", self));
+        text.push_str(&format!(
+            "\nFunction: {}\nInstruction: {:?}\nCursor: {}\nBuffer: {}",
+            self.name,
+            self.buffer.get(self.cursor).unwrap(),
+            self.cursor,
+            self.print_buffer(),
+            //self.stack,
+        ));
         panic!("{}", text)
     }
 }
@@ -489,7 +530,7 @@ impl Display for Value {
                 }
                 */
 
-                formatter.write_str("}")
+                formatter.write_str(" }")
             },
             Value::Enumerate(value) => {
                 formatter.write_str(&value.name)?;
@@ -712,10 +753,12 @@ pub enum Instruction {
     SaveField(usize),
     SaveIndexArray,
     SaveIndexTable,
+    SaveIndexTuple,
     Load(usize),
     LoadField(usize),
     LoadIndexArray,
     LoadIndexTable,
+    LoadIndexTuple,
     Hide(usize),
     Call(usize, usize),
     // TO-DO use usize, usize
@@ -757,22 +800,14 @@ impl Function {
         self.enter.push(parameter);
     }
 
-    fn error(&self, text: &str, stack: &mut [Frame]) {
-        println!("error: {text}");
-
-        for (i, f) in stack.iter().rev().enumerate() {
-            println!("  {}: {}\n    at (source:{})", i, f.name, f.cursor);
-        }
-    }
-
     pub fn execute(
         &self,
         machine: &mut Machine,
         argument: Vec<Value>,
     ) -> Result<Option<Value>, Error> {
         let mut stack = vec![Frame::new(self.name.clone(), self.buffer.clone())];
-        let stack_ref = &mut stack as *mut Vec<Frame>;
-        let mut frame = stack.last_mut().unwrap();
+        let mut frame = stack.pop().unwrap();
+        let mut value = None;
 
         if argument.len() != self.enter.len() {
             panic!("incorrect argument count");
@@ -966,6 +1001,16 @@ impl Function {
                         }
                     }
                 }
+                Instruction::SaveIndexTuple => {
+                    let value = frame.pop_integer();
+                    let reference = frame.pop_reference().borrow().clone();
+
+                    if let Value::Tuple(tuple) = reference {
+                        let field = &tuple.data[value as usize];
+
+                        frame.push(Value::Reference(field.clone()));
+                    }
+                }
                 Instruction::Load(index) => {
                     let value = frame.load(&index);
                     frame.push(value);
@@ -982,11 +1027,11 @@ impl Function {
                     if index >= 0 && index < array.data.len() as i64 {
                         frame.push(array.data[index as usize].borrow().clone());
                     } else {
+                        frame.error("index error", &stack);
                         return Error::new_kind(
                             ErrorKind::IndexError(array.data.len(), index),
                             None,
                         );
-                        //self.error("index error", unsafe { &mut *stack_ref });
                     }
                 }
                 Instruction::LoadIndexTable => {
@@ -1002,12 +1047,18 @@ impl Function {
 
                     //panic!("no value in table with a key of {index}")
                 }
+                Instruction::LoadIndexTuple => {
+                    let index = frame.pop_integer();
+                    let tuple = frame.pop_tuple();
+
+                    frame.push(tuple.data[index as usize].borrow().clone());
+                }
                 Instruction::Hide(index) => {
                     frame.hide(&index);
                 }
                 Instruction::Call(index, arity) => {
                     let function = machine.get_function_index(index);
-                    let argument = Argument::new(frame, arity);
+                    let argument = Argument::new(&mut frame, arity);
                     let mut f = Frame::new(function.name.clone(), function.buffer.clone());
 
                     if argument.buffer.len() != function.enter.len() {
@@ -1018,8 +1069,9 @@ impl Function {
                         f.save(i, a.clone());
                     }
 
-                    stack.push(f);
-                    frame = stack.last_mut().unwrap();
+                    frame.cursor += 1;
+                    stack.push(frame);
+                    frame = f;
                     continue;
 
                     //let value = function.execute(machine, argument.buffer);
@@ -1030,7 +1082,7 @@ impl Function {
                 }
                 Instruction::CallNative(name, arity) => {
                     let function = machine.function_native.get(&name).unwrap();
-                    let argument = Argument::new(frame, arity);
+                    let argument = Argument::new(&mut frame, arity);
 
                     let value = (function.call)(machine, argument);
 
@@ -1169,17 +1221,24 @@ impl Function {
                         frame.cursor = b_cursor;
                     }
                 }
-                Instruction::Return(value) => {
-                    if value {
-                        let value = frame.pop();
-                        stack.pop();
-                        frame = stack.last_mut().unwrap();
-                        frame.push(value);
+                Instruction::Return(pop) => {
+                    if pop {
+                        let v = frame.pop();
+
+                        if !stack.is_empty() {
+                            frame = stack.pop().unwrap();
+                        }
+
+                        frame.push(v);
+
+                        continue;
 
                         //return Some(value);
                     } else {
-                        stack.pop();
-                        frame = stack.last_mut().unwrap();
+                        if !stack.is_empty() {
+                            frame = stack.pop().unwrap();
+                        }
+                        continue;
 
                         //return None;
                     }
@@ -1194,9 +1253,17 @@ impl Function {
             }
 
             frame.cursor += 1;
+
+            if frame.buffer.get(frame.cursor).is_none() && !stack.is_empty() {
+                //println!(
+                //    "hit end of function {}, popping stack, {:#?}",
+                //    frame.name, frame.stack
+                //);
+                frame = stack.pop().unwrap();
+            }
         }
 
-        Ok(None)
+        Ok(value)
     }
 }
 

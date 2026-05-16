@@ -107,8 +107,8 @@ function draw_player(point: Vector, angle: Vector) {
 }
 
 function main() : Boolean {
-    let player := player_new();
     let level  := level_new();
+    let player := player_new();
 
     loop (window_should_close()) {
         draw_begin();
@@ -124,6 +124,8 @@ function main() : Boolean {
             # draw every tile, except the box tile (draw ordering)
             loop (l_i < l_s) {
                 let l_current := l_d[l_i];
+
+                print("{}", l_current);
 
                 if (l_current.style != 2) {
                     draw_texture((l_current.point.x) * 128.0, (l_current.point.y) * 128.0, l_current.where.x, l_current.where.y, 255, 255, 255, 255);
@@ -213,6 +215,7 @@ function main() : Boolean {
                     }
                 }
             }
+
             # draw player
             draw_player(player.point, player.angle);
 

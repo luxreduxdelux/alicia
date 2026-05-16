@@ -68,6 +68,15 @@ impl Kind {
                     Box::new(v.type_check(scope)?),
                 )
             }
+            "Tuple" => {
+                let mut list = Vec::new();
+
+                for k in &self.list {
+                    list.push(k.type_check(scope)?)
+                }
+
+                ExpressionKind::Tuple(list)
+            }
             _ => {
                 let definition = scope
                     .get_declaration(self.name.clone())

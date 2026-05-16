@@ -41,12 +41,16 @@ pub enum ExpressionKind {
     Tuple(Vec<ExpressionKind>),
 }
 
+#[rustfmt::skip]
 impl PartialEq for ExpressionKind {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Structure(l0), Self::Structure(r0)) => l0.text == r0.text,
             (Self::Enumerate(l0), Self::Enumerate(r0)) => l0.text == r0.text,
-            (Self::Array(l0), Self::Array(r0)) => l0 == r0,
+            (Self::Array(l0),     Self::Array(r0)) => l0 == r0,
+            // TO-DO test if an explicit table check is necessary
+            //(Self::Table(l0, l1), Self::Table(r0, r1)) => l0 == r0,
+            (Self::Tuple(l0),     Self::Tuple(r0)) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
@@ -660,6 +664,21 @@ impl Expression {
 
                                 Ok(*b)
                             }
+                            ExpressionKind::Tuple(expression_kind) => {
+                                let expression = expression.as_ref().unwrap();
+
+                                if let ExpressionData::Value(value) = &expression.data
+                                    && let ExpressionValue::Integer(index) = value
+                                {
+                                    if *index >= 0 && *index < expression_kind.len() as i64 {
+                                        return Ok(expression_kind[*index as usize].clone());
+                                    } else {
+                                        panic!("invalid integer index for tuple")
+                                    }
+                                }
+
+                                panic!("invalid integer index for tuple")
+                            }
                             _ => panic!("indexing a non-array value"),
                         }
                     }
@@ -916,6 +935,7 @@ impl Expression {
                             ExpressionKind::Table(_, _) => {
                                 function.push(Instruction::LoadIndexTable)
                             }
+                            ExpressionKind::Tuple(_) => function.push(Instruction::LoadIndexTuple),
                             _ => todo!(),
                         }
                     }
