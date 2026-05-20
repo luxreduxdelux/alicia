@@ -11,6 +11,7 @@ use crate::machine::Machine;
 use crate::machine::Value;
 use crate::machine::ValueType;
 use crate::token::*;
+use alicia_macro::function;
 
 //================================================================
 
@@ -27,6 +28,7 @@ struct Index {
     function: usize,
     structure: usize,
     enumerate: usize,
+    function_native: usize,
 }
 
 pub type ScopePointer = Rc<RefCell<Scope>>;
@@ -34,7 +36,10 @@ pub type ScopePointer = Rc<RefCell<Scope>>;
 #[derive(Debug, Clone)]
 pub struct Scope {
     pub source: Vec<Source>,
-    pub symbol: BTreeMap<String, Declaration>,
+    pub symbol: OrderMap<Declaration>,
+    pub function_integer: OrderMap<FunctionNative>,
+    pub function_decimal: OrderMap<FunctionNative>,
+    pub function_array: OrderMap<FunctionNative>,
     pub parent: Option<ScopePointer>,
     index: Index,
 }
@@ -53,9 +58,26 @@ impl Scope {
             Index::default()
         };
 
+        let (f_i, f_d, f_a) = if let Some(parent) = &parent {
+            (
+                parent.borrow().function_integer.clone(),
+                parent.borrow().function_decimal.clone(),
+                parent.borrow().function_array.clone(),
+            )
+        } else {
+            (
+                OrderMap::default(),
+                OrderMap::default(),
+                OrderMap::default(),
+            )
+        };
+
         Self {
             source,
-            symbol: BTreeMap::default(),
+            symbol: OrderMap::default(),
+            function_integer: f_i,
+            function_decimal: f_d,
+            function_array: f_a,
             parent,
             index,
         }
@@ -106,30 +128,136 @@ impl Scope {
         Ok(())
     }
 
+    #[function]
+    fn to_string(value: i64) {
+        Some(Value::String(value.to_string()))
+    }
+
+    #[function]
+    fn absolute(value: i64) {
+        Some(Value::Integer(value.abs()))
+    }
+
+    #[function]
+    fn min(value: i64, other: i64) {
+        Some(Value::Integer(value.min(other)))
+    }
+
+    #[function]
+    fn max(value: i64, other: i64) {
+        Some(Value::Integer(value.max(other)))
+    }
+
+    fn push(_: &mut Machine, mut argument: Argument) -> Option<Value> {
+        let array = argument.next().unwrap();
+        let value = argument.next().unwrap();
+
+        println!("enter push: {array:?} : {value:?}");
+
+        if let Value::Reference(array) = array
+            && let Value::Array(array) = &mut *array.borrow_mut()
+        {
+            array.push(value);
+        }
+
+        None
+    }
+
+    fn length(_: &mut Machine, mut argument: Argument) -> Option<Value> {
+        let array = argument.next().unwrap();
+
+        if let Value::Reference(array) = array
+            && let Value::Array(array) = &*array.borrow()
+        {
+            return Some(array.length().into());
+        }
+
+        None
+    }
+
+    pub fn add_function(&mut self, mut function: FunctionNative) {
+        function.index = self.index.function_native;
+        self.index.function_native += 1;
+        self.symbol
+            .insert(function.name.clone(), Declaration::FunctionNative(function));
+    }
+
+    pub fn add_function_integer(&mut self, mut function: FunctionNative) {
+        function.index = self.index.function_native;
+        self.index.function_native += 1;
+        self.function_integer
+            .insert(function.name.clone(), function);
+    }
+
+    pub fn add_function_array(&mut self, mut function: FunctionNative) {
+        function.index = self.index.function_native;
+        self.index.function_native += 1;
+        self.function_array.insert(function.name.clone(), function);
+    }
+
     pub fn analyze(&mut self) -> Result<Self, Error> {
-        self.symbol.insert(
-            "print".to_string(),
-            Declaration::FunctionNative(FunctionNative {
-                name: "print".to_string(),
-                call: Self::print_native,
-                enter: NativeArgument::Variable,
-                leave: ValueType::Null,
-            }),
+        self.add_function(FunctionNative {
+            name: "print".to_string(),
+            call: Self::print_native,
+            enter: NativeArgument::Variable,
+            leave: ValueType::Null,
+            index: 0,
+        });
+        /*
+        self.add_function_integer(FunctionNative {
+            name: "to_string".to_string(),
+            call: Self::to_string,
+            enter: NativeArgument::Constant(&[ValueType::Integer]),
+            leave: ValueType::String,
+            index: 1,
+        });
+        */
+        self.add_function_integer(FunctionNative {
+            name: "absolute".to_string(),
+            call: Self::absolute,
+            enter: NativeArgument::Constant(&[ValueType::Integer]),
+            leave: ValueType::Integer,
+            index: 1,
+        });
+        self.add_function_array(FunctionNative {
+            name: "push".to_string(),
+            call: Self::push,
+            enter: NativeArgument::Constant(&[ValueType::Integer]),
+            leave: ValueType::Integer,
+            index: 1,
+        });
+        self.add_function_array(FunctionNative {
+            name: "length".to_string(),
+            call: Self::length,
+            enter: NativeArgument::Constant(&[ValueType::Integer]),
+            leave: ValueType::Integer,
+            index: 1,
+        });
+        /*
+        self.function_integer.insert(
+            "min".to_string(),
+            FunctionNative {
+                name: "min".to_string(),
+                call: Self::min,
+                enter: NativeArgument::Constant(&[ValueType::Integer, ValueType::Integer]),
+                leave: ValueType::Integer,
+            },
         );
-        //self.symbol.insert(
-        //    "test".to_string(),
-        //    Declaration::FunctionNative(FunctionNative {
-        //        name: "test".to_string(),
-        //        call: Self::test,
-        //        enter: NativeArgument::Constant(&[]),
-        //        leave: ValueType::Array(&ValueType::Integer),
-        //    }),
-        //);
-        //function_add!(scope, test);
+        self.function_integer.insert(
+            "max".to_string(),
+            FunctionNative {
+                name: "max".to_string(),
+                call: Self::max,
+                enter: NativeArgument::Constant(&[ValueType::Integer, ValueType::Integer]),
+                leave: ValueType::Integer,
+            },
+        );
+        function_add!(scope, test);
+        */
 
         let scope_clone = Rc::new(RefCell::new(self.clone()));
 
-        for (_, value) in self.symbol.clone() {
+        for value in self.symbol.array.clone() {
             // TO-DO this is quite bad. I think in a future design we should make a difference
             // between pre-analyze declaration and post-analyze declaration rather than modify
             // everything in-place.
@@ -241,19 +369,6 @@ impl Scope {
         Ok(result)
     }
 
-    fn test(_: &mut Machine, _: Argument) -> Option<Value> {
-        //let mut v = Structure::new("Vector".to_string());
-        //v.insert("x".to_string(), Value::Integer(1));
-        //v.insert("y".to_string(), Value::Integer(1));
-        //Some(Value::Structure(v))
-
-        let mut v = Array::new();
-        v.push(Value::Integer(1));
-        v.push(Value::Integer(2));
-        v.push(Value::Integer(3));
-        Some(Value::Array(v))
-    }
-
     fn print_native(machine: &mut Machine, argument: Argument) -> Option<Value> {
         println!("{}", Self::format_internal(argument).unwrap());
 
@@ -269,7 +384,7 @@ impl Scope {
     }
 
     pub fn get_declaration(&self, name: Identifier) -> Option<Declaration> {
-        if let Some(declaration) = self.symbol.get(&name.text) {
+        if let Some(declaration) = self.symbol.get(name.text.clone()) {
             Some(declaration.clone())
         } else if let Some(parent) = &self.parent {
             let parent = parent.borrow();
@@ -277,6 +392,14 @@ impl Scope {
         } else {
             None
         }
+    }
+
+    pub fn get_function_integer(&self, name: Identifier) -> Option<FunctionNative> {
+        self.function_integer.get(name.text).cloned()
+    }
+
+    pub fn get_function_array(&self, name: Identifier) -> Option<FunctionNative> {
+        self.function_array.get(name.text).cloned()
     }
 
     pub fn get_function(&self, name: Identifier) -> Option<Function> {
@@ -319,6 +442,16 @@ impl Scope {
         }
     }
 
+    pub fn get_definition(&self, name: Identifier) -> Option<Definition> {
+        if let Some(d) = self.get_declaration(name)
+            && let Declaration::Definition(e) = d
+        {
+            Some(e)
+        } else {
+            None
+        }
+    }
+
     pub fn set_declaration(&mut self, name: Identifier, value: Declaration) {
         self.symbol.insert(name.text, value);
     }
@@ -354,6 +487,7 @@ pub struct FunctionNative {
     pub call: fn(&mut Machine, Argument) -> Option<Value>,
     pub enter: NativeArgument,
     pub leave: ValueType,
+    pub index: usize,
 }
 
 impl FunctionNative {
@@ -362,12 +496,14 @@ impl FunctionNative {
         call: fn(&mut Machine, Argument) -> Option<Value>,
         enter: NativeArgument,
         leave: ValueType,
+        index: usize,
     ) -> Self {
         Self {
             name,
             call,
             enter,
             leave,
+            index,
         }
     }
 }

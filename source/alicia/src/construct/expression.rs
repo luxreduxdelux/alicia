@@ -25,7 +25,7 @@ use std::fmt::Display;
 #[derive(Debug, Clone, Eq)]
 pub enum ExpressionKind {
     Null,
-    Identifier,
+    Identifier(Identifier),
     String,
     Integer,
     Decimal,
@@ -39,6 +39,7 @@ pub enum ExpressionKind {
     Array(Box<ExpressionKind>),
     Table(Box<ExpressionKind>, Box<ExpressionKind>),
     Tuple(Vec<ExpressionKind>),
+    Reference(Box<ExpressionKind>),
 }
 
 #[rustfmt::skip]
@@ -142,7 +143,7 @@ impl ExpressionValue {
     pub fn kind(&self, scope: &Scope, infer: Option<ExpressionKind>) -> Result<ExpressionKind, Error> {
         Ok(match self {
             Self::Null          => ExpressionKind::Null,
-            Self::Identifier(_) => ExpressionKind::Identifier,
+            Self::Identifier(x) => ExpressionKind::Identifier(x.clone()),
             Self::String(_)     => ExpressionKind::String,
             Self::Integer(_)    => ExpressionKind::Integer,
             Self::Decimal(_)    => ExpressionKind::Decimal,
@@ -171,10 +172,10 @@ pub enum ExpressionOperator {
     GTE,
     LTE,
     EqualNot,
-    Dot,
     Reference,
     Invocation(Vec<Expression>),
-    Indexation(Option<Box<Expression>>),
+    IndexationEntry(Option<Box<Expression>>),
+    IndexationField(Option<Box<Expression>>),
 }
 
 impl ExpressionOperator {
@@ -194,10 +195,10 @@ impl ExpressionOperator {
             TokenKind::GTE              => Self::GTE,
             TokenKind::LTE              => Self::LTE,
             TokenKind::EqualNot         => Self::EqualNot,
-            TokenKind::Dot              => Self::Dot,
             TokenKind::Ampersand        => Self::Reference,
             TokenKind::ParenthesisBegin => Self::Invocation(Vec::default()),
-            TokenKind::SquareBegin      => Self::Indexation(None),
+            TokenKind::SquareBegin      => Self::IndexationEntry(None),
+            TokenKind::Dot              => Self::IndexationField(None),
             _ => panic!(
                 "Alicia internal error: ExpressionValue::parse_token(): want_token() gave back a token that is not a possible value"
             ),
@@ -209,10 +210,11 @@ impl ExpressionOperator {
         let token_a = Box::new(token_a);
 
         match self {
-            Self::Subtract      => ExpressionData::OperationPrior(Self::Subtract,   token_a),
-            Self::Reference     => ExpressionData::OperationPrior(Self::Reference,  token_a),
-            Self::Invocation(_) => ExpressionData::OperationAfter(token_a, self.clone()),
-            Self::Indexation(_) => ExpressionData::OperationAfter(token_a, self.clone()),
+            Self::Subtract           => ExpressionData::OperationPrior(Self::Subtract,   token_a),
+            Self::Reference          => ExpressionData::OperationPrior(Self::Reference,  token_a),
+            Self::Invocation(_)      => ExpressionData::OperationAfter(token_a, self.clone()),
+            Self::IndexationEntry(_) => ExpressionData::OperationAfter(token_a, self.clone()),
+            Self::IndexationField(_) => ExpressionData::OperationAfter(token_a, self.clone()),
             x => panic!("incorrect parse_token_mono operator: {x:?}")
         }
     }
@@ -222,45 +224,46 @@ impl ExpressionOperator {
         let token_a = Box::new(token_a);
         let token_b = Box::new(token_b);
 
+
         match self {
-            Self::Add      => ExpressionData::Operation(Self::Add,      token_a, token_b),
-            Self::Subtract => ExpressionData::Operation(Self::Subtract, token_a, token_b),
-            Self::Multiply => ExpressionData::Operation(Self::Multiply, token_a, token_b),
-            Self::Divide   => ExpressionData::Operation(Self::Divide,   token_a, token_b),
-            Self::And      => ExpressionData::Operation(Self::And,      token_a, token_b),
-            Self::Or       => ExpressionData::Operation(Self::Or,       token_a, token_b),
-            Self::GT       => ExpressionData::Operation(Self::GT,       token_a, token_b),
-            Self::LT       => ExpressionData::Operation(Self::LT,       token_a, token_b),
-            Self::Equal    => ExpressionData::Operation(Self::Equal,    token_a, token_b),
-            Self::GTE      => ExpressionData::Operation(Self::GTE,      token_a, token_b),
-            Self::LTE      => ExpressionData::Operation(Self::LTE,      token_a, token_b),
-            Self::EqualNot => ExpressionData::Operation(Self::EqualNot, token_a, token_b),
-            Self::Dot      => ExpressionData::Operation(Self::Dot, token_a, token_b),
-            x => panic!("incorrect parse_token_binary operator: {x:?}")
+            Self::Add                => ExpressionData::Operation(Self::Add,      token_a, token_b),
+            Self::Subtract           => ExpressionData::Operation(Self::Subtract, token_a, token_b),
+            Self::Multiply           => ExpressionData::Operation(Self::Multiply, token_a, token_b),
+            Self::Divide             => ExpressionData::Operation(Self::Divide,   token_a, token_b),
+            Self::And                => ExpressionData::Operation(Self::And,      token_a, token_b),
+            Self::Or                 => ExpressionData::Operation(Self::Or,       token_a, token_b),
+            Self::GT                 => ExpressionData::Operation(Self::GT,       token_a, token_b),
+            Self::LT                 => ExpressionData::Operation(Self::LT,       token_a, token_b),
+            Self::Equal              => ExpressionData::Operation(Self::Equal,    token_a, token_b),
+            Self::GTE                => ExpressionData::Operation(Self::GTE,      token_a, token_b),
+            Self::LTE                => ExpressionData::Operation(Self::LTE,      token_a, token_b),
+            Self::EqualNot           => ExpressionData::Operation(Self::EqualNot, token_a, token_b),
+            Self::IndexationField(_) => ExpressionData::OperationAfter(token_a, Self::IndexationField(Some(token_b))),
+            x => panic!("incorrect parse_token_binary operator: {x:?}, {token_a:#?}, {token_b:#?}")
         }
     }
 
     #[rustfmt::skip]
     fn bind_power(&self) -> (f32, f32) {
         match self {
-            Self::Add           => (1.0, 1.1),
-            Self::Subtract      => (1.0, 1.1),
-            Self::Multiply      => (2.0, 2.1),
-            Self::Divide        => (2.0, 2.1),
+            Self::Add                => (1.0, 1.1),
+            Self::Subtract           => (1.0, 1.1),
+            Self::Multiply           => (2.0, 2.1),
+            Self::Divide             => (2.0, 2.1),
             // TO-DO add actual bind power to these
-            Self::Not           => (1.0, 1.1),
-            Self::And           => (1.0, 1.1),
-            Self::Or            => (1.0, 1.1),
-            Self::GT            => (1.0, 1.1),
-            Self::LT            => (1.0, 1.1),
-            Self::Equal         => (1.0, 1.1),
-            Self::GTE           => (1.0, 1.1),
-            Self::LTE           => (1.0, 1.1),
-            Self::EqualNot      => (1.0, 1.1),
-            Self::Dot           => (1.0, 1.1),
-            Self::Reference     => (2.0, 2.1),
-            Self::Invocation(_) => (2.1, 2.0),
-            Self::Indexation(_) => (2.1, 2.0),
+            Self::Not                => (1.0, 1.1),
+            Self::And                => (1.0, 1.1),
+            Self::Or                 => (1.0, 1.1),
+            Self::GT                 => (1.0, 1.1),
+            Self::LT                 => (1.0, 1.1),
+            Self::Equal              => (1.0, 1.1),
+            Self::GTE                => (1.0, 1.1),
+            Self::LTE                => (1.0, 1.1),
+            Self::EqualNot           => (1.0, 1.1),
+            Self::Reference          => (2.0, 2.1),
+            Self::Invocation(_)      => (2.1, 2.0),
+            Self::IndexationEntry(_) => (2.1, 2.0),
+            Self::IndexationField(_) => (2.1, 2.0),
         }
     }
 }
@@ -366,11 +369,28 @@ impl Expression {
                                 ExpressionOperator::from_token(token_buffer.want_operator()?);
 
                             match &mut operator {
-                                ExpressionOperator::Indexation(expression) => {
+                                ExpressionOperator::IndexationEntry(expression) => {
                                     *expression =
                                         Some(Box::new(Expression::parse_token(token_buffer, 0.0)?));
 
                                     token_buffer.want(TokenKind::SquareClose)?;
+
+                                    Expression::new(
+                                        token_buffer,
+                                        ExpressionOperator::parse_token_mono(&operator, value),
+                                    )
+                                }
+                                _ => value,
+                            }
+                        }
+                        TokenKind::Dot => {
+                            let mut operator =
+                                ExpressionOperator::from_token(token_buffer.want_operator()?);
+
+                            match &mut operator {
+                                ExpressionOperator::IndexationField(expression) => {
+                                    *expression =
+                                        Some(Box::new(Expression::parse_token(token_buffer, 0.0)?));
 
                                     Expression::new(
                                         token_buffer,
@@ -428,34 +448,37 @@ impl Expression {
         match &self.data {
             ExpressionData::Value(value) => match value {
                 ExpressionValue::Identifier(identifier) => {
-                    let value = scope
-                        .get_declaration(identifier.clone())
-                        .expect(&format!("no declaration for identifier {identifier:?}"));
-
-                    match value {
-                        Declaration::Function(function) => {
-                            Ok(ExpressionKind::Function(function.name.clone()))
-                        }
-                        Declaration::FunctionNative(function) => {
-                            // TO-DO FNative's name should already be an Identifier...
-                            Ok(ExpressionKind::FunctionNative(
-                                Identifier::from_string(function.name.clone(), Point::default())
+                    if let Some(value) = scope.get_declaration(identifier.clone()) {
+                        match value {
+                            Declaration::Function(function) => {
+                                Ok(ExpressionKind::Function(function.name.clone()))
+                            }
+                            Declaration::FunctionNative(function) => {
+                                // TO-DO FNative's name should already be an Identifier...
+                                Ok(ExpressionKind::FunctionNative(
+                                    Identifier::from_string(
+                                        function.name.clone(),
+                                        Point::default(),
+                                    )
                                     .unwrap(),
-                            ))
-                        }
-                        Declaration::Definition(definition) => {
-                            if let Some(kind) = &definition.kind_e {
-                                Ok(kind.clone())
-                            } else {
-                                definition.value.analyze(scope, infer)
+                                ))
+                            }
+                            Declaration::Definition(definition) => {
+                                if let Some(kind) = &definition.kind_e {
+                                    Ok(kind.clone())
+                                } else {
+                                    definition.value.analyze(scope, infer)
+                                }
+                            }
+                            Declaration::Structure(_) => {
+                                Ok(ExpressionKind::DeclarationStructure(identifier.clone()))
+                            }
+                            Declaration::Enumerate(_) => {
+                                Ok(ExpressionKind::DeclarationEnumerate(identifier.clone()))
                             }
                         }
-                        Declaration::Structure(_) => {
-                            Ok(ExpressionKind::DeclarationStructure(identifier.clone()))
-                        }
-                        Declaration::Enumerate(_) => {
-                            Ok(ExpressionKind::DeclarationEnumerate(identifier.clone()))
-                        }
+                    } else {
+                        Ok(ExpressionKind::Identifier(identifier.clone()))
                     }
                 }
                 ExpressionValue::Structure(structure_d) => structure_d.analyze(scope),
@@ -465,33 +488,6 @@ impl Expression {
             },
             ExpressionData::Operation(operator, e_a, e_b) => {
                 let a = e_a.analyze(scope, infer.clone())?;
-
-                if let ExpressionOperator::Dot = operator {
-                    let b = e_b.analyze_identifier()?;
-
-                    match &a {
-                        ExpressionKind::Structure(identifier) => {
-                            let structure = scope.get_structure(identifier.clone()).unwrap();
-
-                            if let Some(field) = structure.variable.get(&b.text) {
-                                return field.kind.type_check(scope);
-                            }
-                        }
-                        ExpressionKind::DeclarationStructure(identifier) => {
-                            let structure = scope.get_structure(identifier.clone()).unwrap();
-
-                            if let Some(field) = structure.function.get(&b.text) {
-                                if let Some(leave) = &field.leave {
-                                    return leave.type_check(scope);
-                                } else {
-                                    return Ok(ExpressionKind::Null);
-                                }
-                            }
-                        }
-                        _ => panic!("dot operator: a is not a structure {a:?}"),
-                    }
-                }
-
                 let b = e_b.analyze(scope, infer)?;
 
                 if a != b {
@@ -552,8 +548,17 @@ impl Expression {
                         }
                     }
                 } else {
+                    match operator {
+                        ExpressionOperator::Reference => {
+                            Ok(ExpressionKind::Reference(Box::new(value)))
+                        }
+                        _ => {
+                            panic!("unsupported operator {operator:?} for value of type {value:?}")
+                        }
+                    }
+
                     // TO-DO add reference
-                    panic!("unsupported operator {operator:?} for value of type {value:?}")
+                    //panic!("unsupported operator {operator:?} for value of type {value:?}")
                 }
             }
             ExpressionData::OperationAfter(value_o, operator) => {
@@ -646,7 +651,7 @@ impl Expression {
                             _ => panic!("invalid value for invocation operator {value:?}"),
                         }
                     }
-                    ExpressionOperator::Indexation(expression) => {
+                    ExpressionOperator::IndexationEntry(expression) => {
                         let kind = expression.as_ref().unwrap().analyze(scope, None)?;
 
                         match value {
@@ -682,6 +687,77 @@ impl Expression {
                             _ => panic!("indexing a non-array value"),
                         }
                     }
+                    ExpressionOperator::IndexationField(expression) => {
+                        //let kind = expression.as_ref().unwrap().analyze(scope, None)?;
+
+                        match value {
+                            ExpressionKind::Integer => {
+                                let e = expression.as_ref().unwrap();
+
+                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                                    && let ExpressionOperator::Invocation(list) = a_o
+                                {
+                                    let kind = a_e.analyze(scope, None)?;
+
+                                    if let ExpressionKind::Identifier(ref i) = kind {
+                                        let index = scope.get_function_integer(i.clone()).unwrap();
+                                        return Ok(index.leave.into_kind(scope));
+                                    }
+                                }
+
+                                panic!("found integer")
+                            }
+                            ExpressionKind::Array(_) => {
+                                let e = expression.as_ref().unwrap();
+
+                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                                    && let ExpressionOperator::Invocation(list) = a_o
+                                {
+                                    let kind = a_e.analyze(scope, None)?;
+
+                                    if let ExpressionKind::Identifier(ref i) = kind {
+                                        let index = scope.get_function_array(i.clone()).unwrap();
+                                        return Ok(index.leave.into_kind(scope));
+                                    }
+                                }
+
+                                panic!("found integer")
+                            }
+                            ExpressionKind::Structure(identifier) => {
+                                let structure = scope.get_structure(identifier.clone()).unwrap();
+
+                                let e = expression.as_ref().unwrap();
+
+                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                                    && let ExpressionOperator::Invocation(list) = a_o
+                                {
+                                    let kind = a_e.analyze(scope, None)?;
+
+                                    if let ExpressionKind::Identifier(ref i) = kind {
+                                        let index = structure.function.get(&i.text).unwrap();
+
+                                        println!("found function {i:?}");
+
+                                        if let Some(leave) = &index.leave {
+                                            return leave.type_check(scope);
+                                        } else {
+                                            return Ok(ExpressionKind::Null);
+                                        }
+                                    }
+                                }
+
+                                if let ExpressionData::Value(v) = &e.data
+                                    && let ExpressionValue::Identifier(i) = v
+                                {
+                                    let index = structure.variable.get(&i.text).unwrap();
+                                    return index.analyze(scope);
+                                }
+
+                                panic!("found expression {expression:?}");
+                            }
+                            x => panic!("found value {x:?}"),
+                        }
+                    }
                     _ => todo!(),
                 }
             }
@@ -714,6 +790,7 @@ impl Expression {
                 }
                 x => panic!("invalid L-expression value {x:?}"),
             },
+            /*
             ExpressionData::Operation(operator, a, b) => match operator {
                 ExpressionOperator::Dot => {
                     a.compile_l(scope, function, true)?;
@@ -736,9 +813,28 @@ impl Expression {
                 }
                 x => panic!("invalid L-expression operator {x:#?}"),
             },
+            */
             ExpressionData::OperationAfter(value, operator) => match operator {
-                ExpressionOperator::Indexation(expression) => {
+                ExpressionOperator::IndexationEntry(expression) => {
                     let kind = value.analyze(scope, None)?;
+
+                    value.compile_l(scope, function, true)?;
+                    expression.as_ref().unwrap().compile(scope, function)?;
+
+                    match kind {
+                        ExpressionKind::Array(_) => function.push(Instruction::SaveIndexArray),
+                        ExpressionKind::Table(_, _) => function.push(Instruction::SaveIndexTable),
+                        _ => todo!(),
+                    }
+
+                    if !from_dot {
+                        function.push(Instruction::SaveReference);
+                    }
+                }
+                ExpressionOperator::IndexationField(expression) => {
+                    let kind = value.analyze(scope, None)?;
+
+                    panic!("compile_l: found indexation field");
 
                     value.compile_l(scope, function, true)?;
                     expression.as_ref().unwrap().compile(scope, function)?;
@@ -759,6 +855,28 @@ impl Expression {
         }
 
         Ok(())
+    }
+
+    fn load_identifier(&self, scope: &Scope, function: &mut MFunction, reference: bool) {
+        match &self.data {
+            ExpressionData::Value(value) => match value {
+                ExpressionValue::Identifier(identifier) => {
+                    let value = scope
+                        .get_declaration(identifier.clone())
+                        .expect(&format!("no declaration for identifier {identifier}"));
+
+                    if let Declaration::Definition(definition) = value {
+                        if reference {
+                            function.push(Instruction::PushReference(definition.index.unwrap()))
+                        } else {
+                            function.push(Instruction::Load(definition.index.unwrap()))
+                        }
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
     }
 
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
@@ -833,23 +951,6 @@ impl Expression {
             },
             ExpressionData::Operation(operator, a, b) => {
                 a.compile(scope, function)?;
-
-                if let ExpressionOperator::Dot = operator {
-                    let b = b.analyze_identifier()?;
-
-                    if let ExpressionKind::Structure(identifier) = a.analyze(scope, None)?
-                        && let Some(structure) = scope.get_structure(identifier)
-                    {
-                        function.push(Instruction::LoadField(
-                            *structure.index_variable.get(&b.text).unwrap(),
-                        ));
-                    }
-
-                    //function.push(Instruction::LoadField(b.text));
-
-                    return Ok(());
-                }
-
                 b.compile(scope, function)?;
 
                 match operator {
@@ -916,15 +1017,17 @@ impl Expression {
                             ))
                         }
                         ExpressionKind::FunctionNative(identifier) => {
+                            let f = scope.get_function_native(identifier.clone()).unwrap();
+
                             for argument in list.iter().rev() {
                                 argument.compile(scope, function)?;
                             }
 
-                            function.push(Instruction::CallNative(identifier.text, list.len()))
+                            function.push(Instruction::CallNative(f.index, list.len()))
                         }
                         _ => panic!("invalid value for invocation operator {value:?}"),
                     },
-                    ExpressionOperator::Indexation(expression) => {
+                    ExpressionOperator::IndexationEntry(expression) => {
                         let kind = value.analyze(scope, None)?;
 
                         value.compile(scope, function)?;
@@ -936,6 +1039,87 @@ impl Expression {
                                 function.push(Instruction::LoadIndexTable)
                             }
                             ExpressionKind::Tuple(_) => function.push(Instruction::LoadIndexTuple),
+                            _ => todo!(),
+                        }
+                    }
+                    ExpressionOperator::IndexationField(expression) => {
+                        let kind = value.analyze(scope, None)?;
+                        //let index = expression.as_ref().unwrap().analyze(scope, None)?;
+
+                        match kind {
+                            ExpressionKind::Integer => {
+                                value.compile(scope, function)?;
+
+                                let e = expression.as_ref().unwrap();
+
+                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                                    && let ExpressionOperator::Invocation(list) = a_o
+                                {
+                                    let kind = a_e.analyze(scope, None)?;
+
+                                    if let ExpressionKind::Identifier(ref i) = kind {
+                                        let index = scope.get_function_integer(i.clone()).unwrap();
+
+                                        for argument in list.iter().rev() {
+                                            argument.compile(scope, function)?;
+                                        }
+
+                                        function.push(Instruction::CallNative(
+                                            index.index,
+                                            list.len() + 1,
+                                        ));
+                                    }
+                                }
+                            }
+                            ExpressionKind::Array(_) => {
+                                let e = expression.as_ref().unwrap();
+
+                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                                    && let ExpressionOperator::Invocation(list) = a_o
+                                {
+                                    let kind = a_e.analyze(scope, None)?;
+
+                                    if let ExpressionKind::Identifier(ref i) = kind {
+                                        let index = scope.get_function_array(i.clone()).unwrap();
+
+                                        for argument in list.iter().rev() {
+                                            argument.compile(scope, function)?;
+                                        }
+
+                                        value.load_identifier(scope, function, true);
+
+                                        function.push(Instruction::CallNative(
+                                            index.index,
+                                            list.len() + 1,
+                                        ));
+                                    }
+                                }
+                            }
+                            ExpressionKind::Structure(ref identifier) => {
+                                value.compile(scope, function)?;
+
+                                let structure = scope.get_structure(identifier.clone()).unwrap();
+
+                                let e = expression.as_ref().unwrap();
+
+                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                                    && let ExpressionOperator::Invocation(list) = a_o
+                                {
+                                    let kind = a_e.analyze(scope, None)?;
+
+                                    if let ExpressionKind::Identifier(ref i) = kind {
+                                        let index = structure.function.get(&i.text).unwrap();
+                                        function.push(Instruction::Call(index.index.unwrap(), 1));
+                                    }
+                                }
+
+                                if let ExpressionData::Value(v) = &e.data
+                                    && let ExpressionValue::Identifier(i) = v
+                                {
+                                    let index = structure.index_variable.get(&i.text).unwrap();
+                                    function.push(Instruction::LoadField(*index));
+                                }
+                            }
                             _ => todo!(),
                         }
                     }

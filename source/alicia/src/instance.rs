@@ -40,10 +40,11 @@ impl Builder {
         scope.parse_buffer(TokenBuffer::new(source)?)?;
 
         for function in self.function {
-            scope.symbol.insert(
-                function.name.to_string(),
-                Declaration::FunctionNative(function),
-            );
+            scope.add_function(function);
+            //scope.symbol.insert(
+            //    function.name.to_string(),
+            //    Declaration::FunctionNative(function),
+            //);
         }
 
         let scope = scope.analyze()?;
@@ -64,10 +65,11 @@ impl Builder {
         scope.parse_buffer(TokenBuffer::new(source)?)?;
 
         for function in self.function {
-            scope.symbol.insert(
-                function.name.to_string(),
-                Declaration::FunctionNative(function),
-            );
+            scope.add_function(function);
+            //scope.symbol.insert(
+            //    function.name.to_string(),
+            //    Declaration::FunctionNative(function),
+            //);
         }
 
         //================================================================

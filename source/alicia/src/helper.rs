@@ -2,7 +2,9 @@ use crate::error::*;
 
 //================================================================
 
+use core::slice::Iter;
 use std::fmt::Display;
+use std::{collections::HashMap, hash::Hash};
 
 //================================================================
 
@@ -78,6 +80,44 @@ impl From<Identifier> for String {
 }
 
 //================================================================
+
+#[derive(Debug, Clone)]
+pub struct OrderMap<V> {
+    pub array: Vec<V>,
+    pub order: HashMap<String, usize>,
+}
+
+impl<V> Default for OrderMap<V> {
+    fn default() -> Self {
+        Self {
+            array: Default::default(),
+            order: Default::default(),
+        }
+    }
+}
+
+impl<V> OrderMap<V> {
+    pub fn insert(&mut self, key: String, value: V) {
+        if let Some(index) = self.order.get(&key) {
+            self.array[*index] = value;
+        } else {
+            self.order.insert(key, self.array.len());
+            self.array.push(value);
+        }
+    }
+
+    pub fn get(&self, key: String) -> Option<&V> {
+        if let Some(index) = self.order.get(&key) {
+            self.array.get(*index)
+        } else {
+            None
+        }
+    }
+
+    pub fn iterate(&self) -> Iter<'_, V> {
+        self.array.iter()
+    }
+}
 
 /*
 #[derive(Debug, Clone, Default)]

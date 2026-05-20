@@ -6,4 +6,5 @@ pub mod instance;
 pub mod machine;
 pub mod prelude;
 pub mod scope;
+pub mod standard;
 pub mod token;

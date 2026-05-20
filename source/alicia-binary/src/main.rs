@@ -118,7 +118,7 @@ fn main() {
                 let main = run.main.unwrap_or("main".to_string());
 
                 unsafe {
-                    //std::env::set_var("RUST_BACKTRACE", "1");
+                    std::env::set_var("RUST_BACKTRACE", "1");
                 }
 
                 if let Err(error) = alicia_run(&path, &main) {

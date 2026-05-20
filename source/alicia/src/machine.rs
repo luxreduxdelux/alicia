@@ -61,14 +61,14 @@ pub struct Machine {
     function: Symbol<Function>,
     structure: Symbol<StructureD>,
     enumerate: Symbol<EnumerateD>,
-    function_native: HashMap<String, FunctionNative>,
+    function_native: Symbol<FunctionNative>,
 }
 
 impl Machine {
     pub fn new(scope: &Scope) -> Result<Self, Error> {
         let mut machine = Self {
             function: Symbol::default(),
-            function_native: HashMap::default(),
+            function_native: Symbol::default(),
             structure: Symbol::default(),
             enumerate: Symbol::default(),
         };
@@ -79,16 +79,16 @@ impl Machine {
     }
 
     pub fn compile(&mut self, scope: &Scope) -> Result<(), Error> {
-        for value in scope.symbol.clone().values() {
+        for value in scope.symbol.clone().iterate() {
             match value {
                 Declaration::Function(f) => {
                     let compile = f.compile(scope)?;
 
-                    //if f.name.text == "main" {
-                    //for (i, c) in compile.buffer.iter().enumerate() {
-                    //    println!("{i}: {c:#?}");
-                    //}
-                    //}
+                    if f.name.text == "main" {
+                        for (i, c) in compile.buffer.iter().enumerate() {
+                            println!("{i}: {c:#?}");
+                        }
+                    }
 
                     self.function.insert(f.name.text.clone(), compile);
                 }
@@ -117,6 +117,18 @@ impl Machine {
             }
         }
 
+        for f in scope.function_integer.array.clone() {
+            self.function_native.insert(f.name.clone(), f);
+        }
+
+        for f in scope.function_decimal.array.clone() {
+            self.function_native.insert(f.name.clone(), f);
+        }
+
+        for f in scope.function_array.array.clone() {
+            self.function_native.insert(f.name.clone(), f);
+        }
+
         Ok(())
     }
 
@@ -128,7 +140,15 @@ impl Machine {
         if let Some(value) = self.function.get(index) {
             value.clone()
         } else {
-            panic!("Machine::get_function(): No function by the index of \"{index}\".")
+            panic!("Machine::get_function_index(): No function by the index of \"{index}\".")
+        }
+    }
+
+    fn get_function_native_index(&self, index: usize) -> FunctionNative {
+        if let Some(value) = self.function_native.get(index) {
+            value.clone()
+        } else {
+            panic!("Machine::get_function_native_index(): No function by the index of \"{index}\".")
         }
     }
 }
@@ -386,6 +406,12 @@ impl From<i64> for Value {
     }
 }
 
+impl From<usize> for Value {
+    fn from(value: usize) -> Self {
+        Self::Integer(value as i64)
+    }
+}
+
 impl From<f32> for Value {
     fn from(value: f32) -> Self {
         Self::Decimal(value as f64)
@@ -454,6 +480,10 @@ impl Array {
 
     pub fn push(&mut self, value: Value) {
         self.data.push(Rc::new(RefCell::new(value)));
+    }
+
+    pub fn length(&self) -> usize {
+        self.data.len()
     }
 }
 
@@ -761,8 +791,7 @@ pub enum Instruction {
     LoadIndexTuple,
     Hide(usize),
     Call(usize, usize),
-    // TO-DO use usize, usize
-    CallNative(String, usize),
+    CallNative(usize, usize),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1080,8 +1109,8 @@ impl Function {
                     //    frame.push(value);
                     //}
                 }
-                Instruction::CallNative(name, arity) => {
-                    let function = machine.function_native.get(&name).unwrap();
+                Instruction::CallNative(index, arity) => {
+                    let function = machine.get_function_native_index(index);
                     let argument = Argument::new(&mut frame, arity);
 
                     let value = (function.call)(machine, argument);
