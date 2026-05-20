@@ -117,15 +117,19 @@ impl Machine {
             }
         }
 
-        for f in scope.function_integer.array.clone() {
+        for f in scope.method.string.array.clone() {
             self.function_native.insert(f.name.clone(), f);
         }
 
-        for f in scope.function_decimal.array.clone() {
+        for f in scope.method.integer.array.clone() {
             self.function_native.insert(f.name.clone(), f);
         }
 
-        for f in scope.function_array.array.clone() {
+        for f in scope.method.decimal.array.clone() {
+            self.function_native.insert(f.name.clone(), f);
+        }
+
+        for f in scope.method.array.array.clone() {
             self.function_native.insert(f.name.clone(), f);
         }
 

@@ -9,14 +9,22 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 //================================================================
 
+#[derive(Debug)]
+struct ScopeWrap(Scope);
+
+unsafe impl Send for ScopeWrap {}
+unsafe impl Sync for ScopeWrap {}
+
 #[derive(Debug, Default)]
 struct State {
-    scope: Option<Scope>,
+    scope: Option<ScopeWrap>,
 }
 
 impl State {
     fn file_begin(&mut self, path: String, file: String) -> std::result::Result<(), Error> {
-        self.scope = Some(Builder::default().with_data(path, file)?.build_scope()?);
+        self.scope = Some(ScopeWrap(
+            Builder::default().with_data(path, file)?.build_scope()?,
+        ));
         Ok(())
     }
 

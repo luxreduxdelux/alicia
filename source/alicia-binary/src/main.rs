@@ -1,8 +1,8 @@
-//mod server;
+mod server;
 
 //================================================================
 
-//use crate::server::server_main;
+use crate::server::server_main;
 use alicia::prelude::*;
 use thiserror::Error;
 

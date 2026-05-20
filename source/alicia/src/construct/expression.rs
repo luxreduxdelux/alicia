@@ -112,6 +112,13 @@ impl ExpressionValue {
 
                     Ok(Self::Identifier(token_buffer.want_identifier()?))
                 }
+                TokenClass::SelfLower => {
+                    println!("found self lower");
+
+                    Ok(Self::Identifier(
+                        Identifier::from_string("self".to_string(), token.point).unwrap(),
+                    ))
+                }
                 TokenClass::String(value) => {
                     token_buffer.next();
                     Ok(Self::String(value))
@@ -294,7 +301,375 @@ pub enum ExpressionData {
     OperationAfter(Box<Expression>, ExpressionOperator),
 }
 
+impl ExpressionData {}
+
 impl Expression {
+    #[rustfmt::skip]
+    pub fn analyze(&self, scope: &Scope, infer: Option<ExpressionKind>) -> Result<ExpressionKind, Error> {
+        match &self.data {
+            ExpressionData::Value(v)             => self.analyze_value(scope, v, infer),
+            ExpressionData::Operation(o, a, b)   => self.analyze_operation(scope, o, a, b, infer),
+            ExpressionData::OperationPrior(o, e) => self.analyze_operation_prior(scope, o, e, infer),
+            ExpressionData::OperationAfter(e, o) => self.analyze_operation_after(scope, e, o, infer),
+        }
+    }
+
+    fn analyze_value(
+        &self,
+        scope: &Scope,
+        value: &ExpressionValue,
+        infer: Option<ExpressionKind>,
+    ) -> Result<ExpressionKind, Error> {
+        match value {
+            ExpressionValue::Identifier(identifier) => {
+                if let Some(value) = scope.get_declaration(identifier.clone()) {
+                    match value {
+                        Declaration::Function(function) => {
+                            Ok(ExpressionKind::Function(function.name.clone()))
+                        }
+                        Declaration::FunctionNative(function) => {
+                            // TO-DO FNative's name should already be an Identifier...
+                            Ok(ExpressionKind::FunctionNative(
+                                Identifier::from_string(function.name.clone(), Point::default())
+                                    .unwrap(),
+                            ))
+                        }
+                        Declaration::Definition(definition) => {
+                            if let Some(kind) = &definition.kind_e {
+                                Ok(kind.clone())
+                            } else {
+                                definition.value.analyze(scope, infer)
+                            }
+                        }
+                        Declaration::Structure(_) => {
+                            Ok(ExpressionKind::DeclarationStructure(identifier.clone()))
+                        }
+                        Declaration::Enumerate(_) => {
+                            Ok(ExpressionKind::DeclarationEnumerate(identifier.clone()))
+                        }
+                    }
+                } else {
+                    Ok(ExpressionKind::Identifier(identifier.clone()))
+                }
+            }
+            ExpressionValue::Structure(structure_d) => structure_d.analyze(scope),
+            //ExpressionValue::Enumerate(enumerate_d) => enumerate_d.analyze(scope),
+            ExpressionValue::Array(array_d) => array_d.analyze(scope, infer),
+            _ => value.kind(scope, infer),
+        }
+    }
+
+    fn analyze_operation(
+        &self,
+        scope: &Scope,
+        operator: &ExpressionOperator,
+        a: &Expression,
+        b: &Expression,
+        infer: Option<ExpressionKind>,
+    ) -> Result<ExpressionKind, Error> {
+        let a = a.analyze(scope, infer.clone())?;
+        let b = b.analyze(scope, infer)?;
+
+        if a != b {
+            // TO-DO add expression span.
+            //return Err(Error::new_info(
+            //    ErrorInfo::new_point(e_a.span.clone(), None),
+            //    ErrorKind::MixKind(a, b),
+            //    None,
+            //));
+            panic!("type mismatch: {:?} != {:?}", a, b);
+        }
+
+        if a.is_number() {
+            match operator {
+                ExpressionOperator::Add => Ok(a),
+                ExpressionOperator::Subtract => Ok(a),
+                ExpressionOperator::Multiply => Ok(a),
+                ExpressionOperator::Divide => Ok(a),
+                ExpressionOperator::Modulo => Ok(a),
+                ExpressionOperator::GT => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::LT => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::GTE => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::LTE => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
+                _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
+            }
+        } else if a == ExpressionKind::Boolean {
+            match operator {
+                ExpressionOperator::And => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Or => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
+                _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
+            }
+        } else {
+            match operator {
+                ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
+                _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
+            }
+        }
+    }
+
+    fn analyze_operation_prior(
+        &self,
+        scope: &Scope,
+        operator: &ExpressionOperator,
+        value: &Expression,
+        infer: Option<ExpressionKind>,
+    ) -> Result<ExpressionKind, Error> {
+        let value = value.analyze(scope, infer)?;
+
+        if value.is_number() {
+            match operator {
+                ExpressionOperator::Subtract => Ok(value),
+                _ => {
+                    panic!("unsupported operator {operator:?} for value of type {value:?}")
+                }
+            }
+        } else if value == ExpressionKind::Boolean {
+            match operator {
+                ExpressionOperator::Not => Ok(ExpressionKind::Boolean),
+                _ => {
+                    panic!("unsupported operator {operator:?} for value of type {value:?}")
+                }
+            }
+        } else {
+            match operator {
+                ExpressionOperator::Reference => Ok(ExpressionKind::Reference(Box::new(value))),
+                _ => {
+                    panic!("unsupported operator {operator:?} for value of type {value:?}")
+                }
+            }
+        }
+    }
+
+    fn analyze_operation_after(
+        &self,
+        scope: &Scope,
+        value: &Expression,
+        operator: &ExpressionOperator,
+        infer: Option<ExpressionKind>,
+    ) -> Result<ExpressionKind, Error> {
+        let value = value.analyze(scope, infer.clone())?;
+
+        match operator {
+            ExpressionOperator::Invocation(list) => {
+                match value {
+                    ExpressionKind::Function(identifier) => {
+                        let function = scope.get_function(identifier.clone()).unwrap();
+                        let enter_a = function.enter.len();
+                        let enter_b = list.len();
+
+                        if enter_a != enter_b {
+                            return Error::new_info(
+                                ErrorInfo::new_point(
+                                    self.span.clone(),
+                                    self.span.begin,
+                                    scope.get_active_source(),
+                                ),
+                                ErrorKind::InvalidInvocationArgumentLength(
+                                    identifier, enter_b, enter_a,
+                                ),
+                                None,
+                            );
+                        }
+
+                        for (i, parameter) in function.enter.iter().enumerate() {
+                            let source = list[i].analyze(scope, infer.clone())?;
+                            let target = parameter.analyze(scope)?;
+
+                            if source != target {
+                                panic!(
+                                    "function: argument type mis-match ({source:?} != {target:?})"
+                                );
+                            }
+                        }
+
+                        if let Some(leave) = &function.leave {
+                            leave.type_check(scope)
+                        } else {
+                            Ok(ExpressionKind::Null)
+                        }
+                    }
+                    ExpressionKind::FunctionNative(identifier) => {
+                        // TO-DO check if the function arguments are correct or not.
+                        let function = scope.get_declaration(identifier.clone()).unwrap();
+
+                        if let Declaration::FunctionNative(function) = function {
+                            if let NativeArgument::Constant(function_list) = function.enter {
+                                let enter_a = function_list.len();
+                                let enter_b = list.len();
+
+                                if function_list.len() != list.len() {
+                                    return Error::new_info(
+                                        ErrorInfo::new_point(
+                                            self.span.clone(),
+                                            self.span.begin,
+                                            scope.get_active_source(),
+                                        ),
+                                        ErrorKind::InvalidInvocationArgumentLength(
+                                            identifier, enter_b, enter_a,
+                                        ),
+                                        None,
+                                    );
+                                }
+
+                                for (i, target) in function_list.iter().enumerate() {
+                                    let source = list[i].analyze(scope, infer.clone())?;
+
+                                    if source != target.into_kind(scope) {
+                                        panic!(
+                                            "native function: argument type mis-match ({source:?} != {target:?}) for function {:?}",
+                                            function.name,
+                                        );
+                                    }
+                                }
+                            } else {
+                                for parameter in list {
+                                    parameter.analyze(scope, infer.clone())?;
+                                }
+                            }
+
+                            Ok(function.leave.into_kind(scope))
+                        } else {
+                            panic!("invalid native function")
+                        }
+                    }
+                    _ => panic!("invalid value for invocation operator {value:?}"),
+                }
+            }
+            ExpressionOperator::IndexationEntry(expression) => {
+                let kind = expression.as_ref().unwrap().analyze(scope, None)?;
+
+                match value {
+                    ExpressionKind::Array(expression_kind) => {
+                        if kind != ExpressionKind::Integer {
+                            panic!("non-integer index for array")
+                        }
+
+                        Ok(*expression_kind)
+                    }
+                    ExpressionKind::Table(a, b) => {
+                        if kind != *a {
+                            panic!("key mis-match for table")
+                        }
+
+                        Ok(*b)
+                    }
+                    ExpressionKind::Tuple(expression_kind) => {
+                        let expression = expression.as_ref().unwrap();
+
+                        if let ExpressionData::Value(value) = &expression.data
+                            && let ExpressionValue::Integer(index) = value
+                        {
+                            if *index >= 0 && *index < expression_kind.len() as i64 {
+                                return Ok(expression_kind[*index as usize].clone());
+                            } else {
+                                panic!("invalid integer index for tuple")
+                            }
+                        }
+
+                        panic!("invalid integer index for tuple")
+                    }
+                    _ => panic!("indexing a non-array value"),
+                }
+            }
+            ExpressionOperator::IndexationField(expression) => {
+                //let kind = expression.as_ref().unwrap().analyze(scope, None)?;
+
+                match value {
+                    ExpressionKind::Integer => {
+                        let e = expression.as_ref().unwrap();
+
+                        if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                            && let ExpressionOperator::Invocation(list) = a_o
+                        {
+                            let kind = a_e.analyze(scope, None)?;
+
+                            if let ExpressionKind::Identifier(ref i) = kind {
+                                let index = scope.get_function_integer(i.clone()).unwrap();
+                                return Ok(index.leave.into_kind(scope));
+                            }
+                        }
+
+                        panic!("found integer")
+                    }
+                    ExpressionKind::Decimal => {
+                        let e = expression.as_ref().unwrap();
+
+                        if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                            && let ExpressionOperator::Invocation(list) = a_o
+                        {
+                            let kind = a_e.analyze(scope, None)?;
+
+                            if let ExpressionKind::Identifier(ref i) = kind {
+                                let index = scope.get_function_decimal(i.clone()).unwrap();
+
+                                println!("{index:#?}");
+
+                                return Ok(index.leave.into_kind(scope));
+                            }
+                        }
+
+                        panic!("found integer")
+                    }
+                    ExpressionKind::Array(_) => {
+                        let e = expression.as_ref().unwrap();
+
+                        if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                            && let ExpressionOperator::Invocation(list) = a_o
+                        {
+                            let kind = a_e.analyze(scope, None)?;
+
+                            if let ExpressionKind::Identifier(ref i) = kind {
+                                let index = scope.get_function_array(i.clone()).unwrap();
+                                return Ok(index.leave.into_kind(scope));
+                            }
+                        }
+
+                        panic!("found integer")
+                    }
+                    ExpressionKind::Structure(identifier) => {
+                        let structure = scope.get_structure(identifier.clone()).unwrap();
+
+                        let e = expression.as_ref().unwrap();
+
+                        if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                            && let ExpressionOperator::Invocation(list) = a_o
+                        {
+                            let kind = a_e.analyze(scope, None)?;
+
+                            if let ExpressionKind::Identifier(ref i) = kind {
+                                let index = structure.function.get(&i.text).unwrap();
+
+                                println!("found function {i:?}");
+
+                                if let Some(leave) = &index.leave {
+                                    return leave.type_check(scope);
+                                } else {
+                                    return Ok(ExpressionKind::Null);
+                                }
+                            }
+                        }
+
+                        if let ExpressionData::Value(v) = &e.data
+                            && let ExpressionValue::Identifier(i) = v
+                        {
+                            let index = structure.variable.get(&i.text).unwrap();
+                            return index.analyze(scope);
+                        }
+
+                        panic!("found expression {expression:?}");
+                    }
+                    x => panic!("found value {x:?}"),
+                }
+            }
+            _ => todo!(),
+        }
+    }
+
     pub fn parse_token(token_buffer: &mut TokenBuffer, bind_power: f32) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Expression, |token_buffer| {
             let mut value_a = if token_buffer.want_peek(TokenKind::ParenthesisBegin) {
@@ -443,331 +818,6 @@ impl Expression {
         }
     }
 
-    pub fn analyze(
-        &self,
-        scope: &Scope,
-        infer: Option<ExpressionKind>,
-    ) -> Result<ExpressionKind, Error> {
-        match &self.data {
-            ExpressionData::Value(value) => match value {
-                ExpressionValue::Identifier(identifier) => {
-                    if let Some(value) = scope.get_declaration(identifier.clone()) {
-                        match value {
-                            Declaration::Function(function) => {
-                                Ok(ExpressionKind::Function(function.name.clone()))
-                            }
-                            Declaration::FunctionNative(function) => {
-                                // TO-DO FNative's name should already be an Identifier...
-                                Ok(ExpressionKind::FunctionNative(
-                                    Identifier::from_string(
-                                        function.name.clone(),
-                                        Point::default(),
-                                    )
-                                    .unwrap(),
-                                ))
-                            }
-                            Declaration::Definition(definition) => {
-                                if let Some(kind) = &definition.kind_e {
-                                    Ok(kind.clone())
-                                } else {
-                                    definition.value.analyze(scope, infer)
-                                }
-                            }
-                            Declaration::Structure(_) => {
-                                Ok(ExpressionKind::DeclarationStructure(identifier.clone()))
-                            }
-                            Declaration::Enumerate(_) => {
-                                Ok(ExpressionKind::DeclarationEnumerate(identifier.clone()))
-                            }
-                        }
-                    } else {
-                        Ok(ExpressionKind::Identifier(identifier.clone()))
-                    }
-                }
-                ExpressionValue::Structure(structure_d) => structure_d.analyze(scope),
-                //ExpressionValue::Enumerate(enumerate_d) => enumerate_d.analyze(scope),
-                ExpressionValue::Array(array_d) => array_d.analyze(scope, infer),
-                _ => value.kind(scope, infer),
-            },
-            ExpressionData::Operation(operator, e_a, e_b) => {
-                let a = e_a.analyze(scope, infer.clone())?;
-                let b = e_b.analyze(scope, infer)?;
-
-                if a != b {
-                    // TO-DO add expression span.
-                    //return Err(Error::new_info(
-                    //    ErrorInfo::new_point(e_a.span.clone(), None),
-                    //    ErrorKind::MixKind(a, b),
-                    //    None,
-                    //));
-                    panic!("type mismatch: {:?} != {:?}", a, b);
-                }
-
-                if a.is_number() {
-                    match operator {
-                        ExpressionOperator::Add => Ok(a),
-                        ExpressionOperator::Subtract => Ok(a),
-                        ExpressionOperator::Multiply => Ok(a),
-                        ExpressionOperator::Divide => Ok(a),
-                        ExpressionOperator::Modulo => Ok(a),
-                        ExpressionOperator::GT => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::LT => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::GTE => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::LTE => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
-                        _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
-                    }
-                } else if a == ExpressionKind::Boolean {
-                    match operator {
-                        ExpressionOperator::And => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::Or => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
-                        _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
-                    }
-                } else {
-                    match operator {
-                        ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
-                        ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
-                        _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
-                    }
-                }
-            }
-            ExpressionData::OperationPrior(operator, value) => {
-                let value = value.analyze(scope, infer)?;
-
-                if value.is_number() {
-                    match operator {
-                        ExpressionOperator::Subtract => Ok(value),
-                        _ => {
-                            panic!("unsupported operator {operator:?} for value of type {value:?}")
-                        }
-                    }
-                } else if value == ExpressionKind::Boolean {
-                    match operator {
-                        ExpressionOperator::Not => Ok(ExpressionKind::Boolean),
-                        _ => {
-                            panic!("unsupported operator {operator:?} for value of type {value:?}")
-                        }
-                    }
-                } else {
-                    match operator {
-                        ExpressionOperator::Reference => {
-                            Ok(ExpressionKind::Reference(Box::new(value)))
-                        }
-                        _ => {
-                            panic!("unsupported operator {operator:?} for value of type {value:?}")
-                        }
-                    }
-
-                    // TO-DO add reference
-                    //panic!("unsupported operator {operator:?} for value of type {value:?}")
-                }
-            }
-            ExpressionData::OperationAfter(value_o, operator) => {
-                let value = value_o.analyze(scope, infer.clone())?;
-
-                match operator {
-                    ExpressionOperator::Invocation(list) => {
-                        match value {
-                            ExpressionKind::Function(identifier) => {
-                                let function = scope.get_function(identifier.clone()).unwrap();
-                                let enter_a = function.enter.len();
-                                let enter_b = list.len();
-
-                                if enter_a != enter_b {
-                                    return Error::new_info(
-                                        ErrorInfo::new_point(
-                                            self.span.clone(),
-                                            self.span.begin,
-                                            scope.get_active_source(),
-                                        ),
-                                        ErrorKind::InvalidInvocationArgumentLength(
-                                            identifier, enter_b, enter_a,
-                                        ),
-                                        None,
-                                    );
-                                }
-
-                                for (i, parameter) in function.enter.iter().enumerate() {
-                                    let source = list[i].analyze(scope, infer.clone())?;
-                                    let target = parameter.analyze(scope)?;
-
-                                    if source != target {
-                                        panic!(
-                                            "function: argument type mis-match ({source:?} != {target:?})"
-                                        );
-                                    }
-                                }
-
-                                if let Some(leave) = &function.leave {
-                                    leave.type_check(scope)
-                                } else {
-                                    Ok(ExpressionKind::Null)
-                                }
-                            }
-                            ExpressionKind::FunctionNative(identifier) => {
-                                // TO-DO check if the function arguments are correct or not.
-                                let function = scope.get_declaration(identifier.clone()).unwrap();
-
-                                if let Declaration::FunctionNative(function) = function {
-                                    if let NativeArgument::Constant(function_list) = function.enter
-                                    {
-                                        let enter_a = function_list.len();
-                                        let enter_b = list.len();
-
-                                        if function_list.len() != list.len() {
-                                            return Error::new_info(
-                                                ErrorInfo::new_point(
-                                                    self.span.clone(),
-                                                    self.span.begin,
-                                                    scope.get_active_source(),
-                                                ),
-                                                ErrorKind::InvalidInvocationArgumentLength(
-                                                    identifier, enter_b, enter_a,
-                                                ),
-                                                None,
-                                            );
-                                        }
-
-                                        for (i, target) in function_list.iter().enumerate() {
-                                            let source = list[i].analyze(scope, infer.clone())?;
-
-                                            if source != target.into_kind(scope) {
-                                                panic!(
-                                                    "native function: argument type mis-match ({source:?} != {target:?}) for function {:?}",
-                                                    function.name,
-                                                );
-                                            }
-                                        }
-                                    } else {
-                                        for parameter in list {
-                                            parameter.analyze(scope, infer.clone())?;
-                                        }
-                                    }
-
-                                    Ok(function.leave.into_kind(scope))
-                                } else {
-                                    panic!("invalid native function")
-                                }
-                            }
-                            _ => panic!("invalid value for invocation operator {value:?}"),
-                        }
-                    }
-                    ExpressionOperator::IndexationEntry(expression) => {
-                        let kind = expression.as_ref().unwrap().analyze(scope, None)?;
-
-                        match value {
-                            ExpressionKind::Array(expression_kind) => {
-                                if kind != ExpressionKind::Integer {
-                                    panic!("non-integer index for array")
-                                }
-
-                                Ok(*expression_kind)
-                            }
-                            ExpressionKind::Table(a, b) => {
-                                if kind != *a {
-                                    panic!("key mis-match for table")
-                                }
-
-                                Ok(*b)
-                            }
-                            ExpressionKind::Tuple(expression_kind) => {
-                                let expression = expression.as_ref().unwrap();
-
-                                if let ExpressionData::Value(value) = &expression.data
-                                    && let ExpressionValue::Integer(index) = value
-                                {
-                                    if *index >= 0 && *index < expression_kind.len() as i64 {
-                                        return Ok(expression_kind[*index as usize].clone());
-                                    } else {
-                                        panic!("invalid integer index for tuple")
-                                    }
-                                }
-
-                                panic!("invalid integer index for tuple")
-                            }
-                            _ => panic!("indexing a non-array value"),
-                        }
-                    }
-                    ExpressionOperator::IndexationField(expression) => {
-                        //let kind = expression.as_ref().unwrap().analyze(scope, None)?;
-
-                        match value {
-                            ExpressionKind::Integer => {
-                                let e = expression.as_ref().unwrap();
-
-                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
-                                    && let ExpressionOperator::Invocation(list) = a_o
-                                {
-                                    let kind = a_e.analyze(scope, None)?;
-
-                                    if let ExpressionKind::Identifier(ref i) = kind {
-                                        let index = scope.get_function_integer(i.clone()).unwrap();
-                                        return Ok(index.leave.into_kind(scope));
-                                    }
-                                }
-
-                                panic!("found integer")
-                            }
-                            ExpressionKind::Array(_) => {
-                                let e = expression.as_ref().unwrap();
-
-                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
-                                    && let ExpressionOperator::Invocation(list) = a_o
-                                {
-                                    let kind = a_e.analyze(scope, None)?;
-
-                                    if let ExpressionKind::Identifier(ref i) = kind {
-                                        let index = scope.get_function_array(i.clone()).unwrap();
-                                        return Ok(index.leave.into_kind(scope));
-                                    }
-                                }
-
-                                panic!("found integer")
-                            }
-                            ExpressionKind::Structure(identifier) => {
-                                let structure = scope.get_structure(identifier.clone()).unwrap();
-
-                                let e = expression.as_ref().unwrap();
-
-                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
-                                    && let ExpressionOperator::Invocation(list) = a_o
-                                {
-                                    let kind = a_e.analyze(scope, None)?;
-
-                                    if let ExpressionKind::Identifier(ref i) = kind {
-                                        let index = structure.function.get(&i.text).unwrap();
-
-                                        println!("found function {i:?}");
-
-                                        if let Some(leave) = &index.leave {
-                                            return leave.type_check(scope);
-                                        } else {
-                                            return Ok(ExpressionKind::Null);
-                                        }
-                                    }
-                                }
-
-                                if let ExpressionData::Value(v) = &e.data
-                                    && let ExpressionValue::Identifier(i) = v
-                                {
-                                    let index = structure.variable.get(&i.text).unwrap();
-                                    return index.analyze(scope);
-                                }
-
-                                panic!("found expression {expression:?}");
-                            }
-                            x => panic!("found value {x:?}"),
-                        }
-                    }
-                    _ => todo!(),
-                }
-            }
-        }
-    }
-
     pub fn compile_l(
         &self,
         scope: &Scope,
@@ -838,14 +888,21 @@ impl Expression {
                 ExpressionOperator::IndexationField(expression) => {
                     let kind = value.analyze(scope, None)?;
 
-                    panic!("compile_l: found indexation field");
-
                     value.compile_l(scope, function, true)?;
-                    expression.as_ref().unwrap().compile(scope, function)?;
 
                     match kind {
-                        ExpressionKind::Array(_) => function.push(Instruction::SaveIndexArray),
-                        ExpressionKind::Table(_, _) => function.push(Instruction::SaveIndexTable),
+                        ExpressionKind::Structure(identifier) => {
+                            let structure = scope.get_structure(identifier.clone()).unwrap();
+
+                            let e = expression.as_ref().unwrap();
+
+                            if let ExpressionData::Value(v) = &e.data
+                                && let ExpressionValue::Identifier(i) = v
+                            {
+                                let index = structure.index_variable.get(&i.text).unwrap();
+                                function.push(Instruction::SaveField(*index));
+                            }
+                        }
                         _ => todo!(),
                     }
 
@@ -1076,6 +1133,30 @@ impl Expression {
                                     }
                                 }
                             }
+                            ExpressionKind::Decimal => {
+                                value.compile(scope, function)?;
+
+                                let e = expression.as_ref().unwrap();
+
+                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                                    && let ExpressionOperator::Invocation(list) = a_o
+                                {
+                                    let kind = a_e.analyze(scope, None)?;
+
+                                    if let ExpressionKind::Identifier(ref i) = kind {
+                                        let index = scope.get_function_decimal(i.clone()).unwrap();
+
+                                        for argument in list.iter().rev() {
+                                            argument.compile(scope, function)?;
+                                        }
+
+                                        function.push(Instruction::CallNative(
+                                            index.index,
+                                            list.len() + 1,
+                                        ));
+                                    }
+                                }
+                            }
                             ExpressionKind::Array(_) => {
                                 let e = expression.as_ref().unwrap();
 
@@ -1101,8 +1182,6 @@ impl Expression {
                                 }
                             }
                             ExpressionKind::Structure(ref identifier) => {
-                                value.compile(scope, function)?;
-
                                 let structure = scope.get_structure(identifier.clone()).unwrap();
 
                                 let e = expression.as_ref().unwrap();
@@ -1112,9 +1191,18 @@ impl Expression {
                                 {
                                     let kind = a_e.analyze(scope, None)?;
 
+                                    for argument in list.iter().rev() {
+                                        argument.compile(scope, function)?;
+                                    }
+
+                                    value.load_identifier(scope, function, true);
+
                                     if let ExpressionKind::Identifier(ref i) = kind {
                                         let index = structure.function.get(&i.text).unwrap();
-                                        function.push(Instruction::Call(index.index.unwrap(), 1));
+                                        function.push(Instruction::Call(
+                                            index.index.unwrap(),
+                                            list.len() + 1,
+                                        ));
                                     }
                                 }
 

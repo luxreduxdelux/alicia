@@ -2,6 +2,7 @@ use proc_macro::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use syn::Expr;
+use syn::Ident;
 use syn::ItemFn;
 use syn::Token;
 use syn::parse_macro_input;
@@ -111,19 +112,13 @@ pub fn function(_: TokenStream, input: TokenStream) -> TokenStream {
             "String" => {
                 function_leave = quote! { ValueType::String };
             }
-            "i32" => {
+            "Integer" => {
                 function_leave = quote! { ValueType::Integer };
             }
-            "i64" => {
-                function_leave = quote! { ValueType::Integer };
-            }
-            "f32" => {
+            "Decimal" => {
                 function_leave = quote! { ValueType::Decimal };
             }
-            "f64" => {
-                function_leave = quote! { ValueType::Decimal };
-            }
-            "bool" => {
+            "Boolean" => {
                 function_leave = quote! { ValueType::Boolean };
             }
             _ => {}
@@ -144,9 +139,9 @@ pub fn function(_: TokenStream, input: TokenStream) -> TokenStream {
     })
 }
 
-#[proc_macro]
-pub fn function_add(input: TokenStream) -> TokenStream {
+fn add(input: TokenStream, kind: &str) -> TokenStream {
     let mut scope_name = None;
+    let function_kind = format_ident!("{}", kind);
     let mut function_name = None;
     let mut function_meta = None;
 
@@ -185,14 +180,40 @@ pub fn function_add(input: TokenStream) -> TokenStream {
 
     TokenStream::from(quote! {
         {
-            let _ = #scope_name.symbol.insert(#function_name.to_string(), Declaration::FunctionNative(FunctionNative {
+            #scope_name.#function_kind(FunctionNative {
                 name: #function_name.to_string(),
-                call: Self::#function_path,
-                enter: Self::#function_meta.enter,
-                leave: Self::#function_meta.leave,
-            }));
+                call: self::#function_path,
+                enter: self::#function_meta.enter,
+                leave: self::#function_meta.leave,
+                index: 0
+            });
         }
     })
+}
+
+#[proc_macro]
+pub fn function_add(input: TokenStream) -> TokenStream {
+    add(input, "add_function")
+}
+
+#[proc_macro]
+pub fn function_string_add(input: TokenStream) -> TokenStream {
+    add(input, "add_function_string")
+}
+
+#[proc_macro]
+pub fn function_integer_add(input: TokenStream) -> TokenStream {
+    add(input, "add_function_integer")
+}
+
+#[proc_macro]
+pub fn function_decimal_add(input: TokenStream) -> TokenStream {
+    add(input, "add_function_decimal")
+}
+
+#[proc_macro]
+pub fn function_array_add(input: TokenStream) -> TokenStream {
+    add(input, "add_function_array")
 }
 
 #[proc_macro]

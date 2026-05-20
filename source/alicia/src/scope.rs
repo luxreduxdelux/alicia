@@ -6,17 +6,15 @@ use crate::construct::structure::Structure;
 use crate::error::*;
 use crate::helper::*;
 use crate::machine::Argument;
-use crate::machine::Array;
 use crate::machine::Machine;
 use crate::machine::Value;
 use crate::machine::ValueType;
+use crate::standard;
 use crate::token::*;
-use alicia_macro::function;
 
 //================================================================
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::rc::Rc;
 
@@ -31,16 +29,22 @@ struct Index {
     function_native: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Method {
+    pub string: OrderMap<FunctionNative>,
+    pub integer: OrderMap<FunctionNative>,
+    pub decimal: OrderMap<FunctionNative>,
+    pub array: OrderMap<FunctionNative>,
+}
+
 pub type ScopePointer = Rc<RefCell<Scope>>;
 
 #[derive(Debug, Clone)]
 pub struct Scope {
     pub source: Vec<Source>,
     pub symbol: OrderMap<Declaration>,
-    pub function_integer: OrderMap<FunctionNative>,
-    pub function_decimal: OrderMap<FunctionNative>,
-    pub function_array: OrderMap<FunctionNative>,
     pub parent: Option<ScopePointer>,
+    pub method: Method,
     index: Index,
 }
 
@@ -58,27 +62,17 @@ impl Scope {
             Index::default()
         };
 
-        let (f_i, f_d, f_a) = if let Some(parent) = &parent {
-            (
-                parent.borrow().function_integer.clone(),
-                parent.borrow().function_decimal.clone(),
-                parent.borrow().function_array.clone(),
-            )
+        let method = if let Some(parent) = &parent {
+            parent.borrow().method.clone()
         } else {
-            (
-                OrderMap::default(),
-                OrderMap::default(),
-                OrderMap::default(),
-            )
+            Method::default()
         };
 
         Self {
             source,
             symbol: OrderMap::default(),
-            function_integer: f_i,
-            function_decimal: f_d,
-            function_array: f_a,
             parent,
+            method,
             index,
         }
     }
@@ -128,53 +122,6 @@ impl Scope {
         Ok(())
     }
 
-    #[function]
-    fn to_string(value: i64) {
-        Some(Value::String(value.to_string()))
-    }
-
-    #[function]
-    fn absolute(value: i64) {
-        Some(Value::Integer(value.abs()))
-    }
-
-    #[function]
-    fn min(value: i64, other: i64) {
-        Some(Value::Integer(value.min(other)))
-    }
-
-    #[function]
-    fn max(value: i64, other: i64) {
-        Some(Value::Integer(value.max(other)))
-    }
-
-    fn push(_: &mut Machine, mut argument: Argument) -> Option<Value> {
-        let array = argument.next().unwrap();
-        let value = argument.next().unwrap();
-
-        println!("enter push: {array:?} : {value:?}");
-
-        if let Value::Reference(array) = array
-            && let Value::Array(array) = &mut *array.borrow_mut()
-        {
-            array.push(value);
-        }
-
-        None
-    }
-
-    fn length(_: &mut Machine, mut argument: Argument) -> Option<Value> {
-        let array = argument.next().unwrap();
-
-        if let Value::Reference(array) = array
-            && let Value::Array(array) = &*array.borrow()
-        {
-            return Some(array.length().into());
-        }
-
-        None
-    }
-
     pub fn add_function(&mut self, mut function: FunctionNative) {
         function.index = self.index.function_native;
         self.index.function_native += 1;
@@ -182,17 +129,28 @@ impl Scope {
             .insert(function.name.clone(), Declaration::FunctionNative(function));
     }
 
+    pub fn add_function_string(&mut self, mut function: FunctionNative) {
+        function.index = self.index.function_native;
+        self.index.function_native += 1;
+        self.method.string.insert(function.name.clone(), function);
+    }
+
     pub fn add_function_integer(&mut self, mut function: FunctionNative) {
         function.index = self.index.function_native;
         self.index.function_native += 1;
-        self.function_integer
-            .insert(function.name.clone(), function);
+        self.method.integer.insert(function.name.clone(), function);
+    }
+
+    pub fn add_function_decimal(&mut self, mut function: FunctionNative) {
+        function.index = self.index.function_native;
+        self.index.function_native += 1;
+        self.method.decimal.insert(function.name.clone(), function);
     }
 
     pub fn add_function_array(&mut self, mut function: FunctionNative) {
         function.index = self.index.function_native;
         self.index.function_native += 1;
-        self.function_array.insert(function.name.clone(), function);
+        self.method.array.insert(function.name.clone(), function);
     }
 
     pub fn analyze(&mut self) -> Result<Self, Error> {
@@ -203,57 +161,12 @@ impl Scope {
             leave: ValueType::Null,
             index: 0,
         });
-        /*
-        self.add_function_integer(FunctionNative {
-            name: "to_string".to_string(),
-            call: Self::to_string,
-            enter: NativeArgument::Constant(&[ValueType::Integer]),
-            leave: ValueType::String,
-            index: 1,
-        });
-        */
-        self.add_function_integer(FunctionNative {
-            name: "absolute".to_string(),
-            call: Self::absolute,
-            enter: NativeArgument::Constant(&[ValueType::Integer]),
-            leave: ValueType::Integer,
-            index: 1,
-        });
-        self.add_function_array(FunctionNative {
-            name: "push".to_string(),
-            call: Self::push,
-            enter: NativeArgument::Constant(&[ValueType::Integer]),
-            leave: ValueType::Integer,
-            index: 1,
-        });
-        self.add_function_array(FunctionNative {
-            name: "length".to_string(),
-            call: Self::length,
-            enter: NativeArgument::Constant(&[ValueType::Integer]),
-            leave: ValueType::Integer,
-            index: 1,
-        });
-        /*
-        self.function_integer.insert(
-            "min".to_string(),
-            FunctionNative {
-                name: "min".to_string(),
-                call: Self::min,
-                enter: NativeArgument::Constant(&[ValueType::Integer, ValueType::Integer]),
-                leave: ValueType::Integer,
-            },
-        );
-        self.function_integer.insert(
-            "max".to_string(),
-            FunctionNative {
-                name: "max".to_string(),
-                call: Self::max,
-                enter: NativeArgument::Constant(&[ValueType::Integer, ValueType::Integer]),
-                leave: ValueType::Integer,
-            },
-        );
-        function_add!(scope, test);
-        */
+
+        standard::file::module(self);
+        standard::system::module(self);
+        standard::primitive::module(self);
+
+        //function_add!(scope, test);
 
         let scope_clone = Rc::new(RefCell::new(self.clone()));
 
@@ -395,11 +308,15 @@ impl Scope {
     }
 
     pub fn get_function_integer(&self, name: Identifier) -> Option<FunctionNative> {
-        self.function_integer.get(name.text).cloned()
+        self.method.integer.get(name.text).cloned()
+    }
+
+    pub fn get_function_decimal(&self, name: Identifier) -> Option<FunctionNative> {
+        self.method.decimal.get(name.text).cloned()
     }
 
     pub fn get_function_array(&self, name: Identifier) -> Option<FunctionNative> {
-        self.function_array.get(name.text).cloned()
+        self.method.array.get(name.text).cloned()
     }
 
     pub fn get_function(&self, name: Identifier) -> Option<Function> {
