@@ -265,7 +265,8 @@ impl TokenBuffer {
                 | TokenKind::DefinitionAdd
                 | TokenKind::DefinitionSubtract
                 | TokenKind::DefinitionMultiply
-                | TokenKind::DefinitionDivide => return Ok(next.clone()),
+                | TokenKind::DefinitionDivide
+                | TokenKind::DefinitionModulo => return Ok(next.clone()),
                 _ => {
                     return Error::new_info(
                         ErrorInfo::new_token(
@@ -349,6 +350,7 @@ impl TokenBuffer {
                 | TokenKind::Subtract
                 | TokenKind::Multiply
                 | TokenKind::Divide
+                | TokenKind::Modulo
                 | TokenKind::Not
                 | TokenKind::And
                 | TokenKind::Or
@@ -393,6 +395,7 @@ impl TokenBuffer {
                 | TokenKind::Subtract
                 | TokenKind::Multiply
                 | TokenKind::Divide
+                | TokenKind::Modulo
                 | TokenKind::Not
                 | TokenKind::And
                 | TokenKind::Or

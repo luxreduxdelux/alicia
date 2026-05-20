@@ -341,4 +341,8 @@ pub enum ErrorKind {
     IncorrectKind(ExpressionKind, ExpressionKind),
     #[error("array is of size {0}, array index is {1} instead.")]
     IndexError(usize, i64),
+    #[error("attempt to divide with divisor zero")]
+    DivideError,
+    #[error("attempt to calculate remainder with divisor zero")]
+    ModuloError,
 }

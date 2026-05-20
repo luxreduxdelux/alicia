@@ -25,6 +25,44 @@ impl Assignment {
             let value = Expression::parse_token(token_buffer, 0.0)?;
             token_buffer.want(TokenKind::ColonSemi)?;
 
+            let value = match kind.class.kind() {
+                TokenKind::DefinitionAdd => Expression {
+                    span: value.span.clone(),
+                    data: ExpressionData::Operation(
+                        ExpressionOperator::Add,
+                        Box::new(path.clone()),
+                        Box::new(value),
+                    ),
+                },
+                TokenKind::DefinitionSubtract => Expression {
+                    span: value.span.clone(),
+                    data: ExpressionData::Operation(
+                        ExpressionOperator::Subtract,
+                        Box::new(path.clone()),
+                        Box::new(value),
+                    ),
+                },
+                TokenKind::DefinitionMultiply => Expression {
+                    span: value.span.clone(),
+                    data: ExpressionData::Operation(
+                        ExpressionOperator::Multiply,
+                        Box::new(path.clone()),
+                        Box::new(value),
+                    ),
+                },
+                TokenKind::DefinitionDivide => Expression {
+                    span: value.span.clone(),
+                    data: ExpressionData::Operation(
+                        ExpressionOperator::Divide,
+                        Box::new(path.clone()),
+                        Box::new(value),
+                    ),
+                },
+                _ => value,
+            };
+
+            println!("assignment: {value:?}");
+
             Ok(Self {
                 span: token_buffer.get_span(),
                 path: path.clone(),

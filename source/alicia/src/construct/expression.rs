@@ -163,6 +163,7 @@ pub enum ExpressionOperator {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     Not,
     And,
     Or,
@@ -186,6 +187,7 @@ impl ExpressionOperator {
             TokenKind::Subtract         => Self::Subtract,
             TokenKind::Multiply         => Self::Multiply,
             TokenKind::Divide           => Self::Divide,
+            TokenKind::Modulo           => Self::Modulo,
             TokenKind::Not              => Self::Not,
             TokenKind::And              => Self::And,
             TokenKind::Or               => Self::Or,
@@ -224,12 +226,12 @@ impl ExpressionOperator {
         let token_a = Box::new(token_a);
         let token_b = Box::new(token_b);
 
-
         match self {
             Self::Add                => ExpressionData::Operation(Self::Add,      token_a, token_b),
             Self::Subtract           => ExpressionData::Operation(Self::Subtract, token_a, token_b),
             Self::Multiply           => ExpressionData::Operation(Self::Multiply, token_a, token_b),
             Self::Divide             => ExpressionData::Operation(Self::Divide,   token_a, token_b),
+            Self::Modulo             => ExpressionData::Operation(Self::Modulo,   token_a, token_b),
             Self::And                => ExpressionData::Operation(Self::And,      token_a, token_b),
             Self::Or                 => ExpressionData::Operation(Self::Or,       token_a, token_b),
             Self::GT                 => ExpressionData::Operation(Self::GT,       token_a, token_b),
@@ -250,6 +252,7 @@ impl ExpressionOperator {
             Self::Subtract           => (1.0, 1.1),
             Self::Multiply           => (2.0, 2.1),
             Self::Divide             => (2.0, 2.1),
+            Self::Modulo             => (2.0, 2.1),
             // TO-DO add actual bind power to these
             Self::Not                => (1.0, 1.1),
             Self::And                => (1.0, 1.1),
@@ -506,6 +509,7 @@ impl Expression {
                         ExpressionOperator::Subtract => Ok(a),
                         ExpressionOperator::Multiply => Ok(a),
                         ExpressionOperator::Divide => Ok(a),
+                        ExpressionOperator::Modulo => Ok(a),
                         ExpressionOperator::GT => Ok(ExpressionKind::Boolean),
                         ExpressionOperator::LT => Ok(ExpressionKind::Boolean),
                         ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
@@ -958,6 +962,7 @@ impl Expression {
                     ExpressionOperator::Subtract => function.push(Instruction::Subtract),
                     ExpressionOperator::Multiply => function.push(Instruction::Multiply),
                     ExpressionOperator::Divide => function.push(Instruction::Divide),
+                    ExpressionOperator::Modulo => function.push(Instruction::Modulo),
                     ExpressionOperator::And => function.push(Instruction::And),
                     ExpressionOperator::Or => function.push(Instruction::Or),
                     ExpressionOperator::GT => function.push(Instruction::GT),

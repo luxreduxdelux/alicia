@@ -6,6 +6,7 @@ use super::expression::*;
 
 use crate::buffer::*;
 use crate::error::*;
+use crate::helper::Identifier;
 use crate::machine::Function as MFunction;
 use crate::machine::Instruction;
 use crate::scope::*;
@@ -35,7 +36,7 @@ iteration compilation:
 
 #[derive(Debug, Clone)]
 pub enum IterationValue {
-    Iterational(Assignment),
+    Iterational { lhs: Expression, rhs: Expression },
     Conditional(Expression),
 }
 
@@ -51,20 +52,25 @@ impl Iteration {
             token_buffer.want(TokenKind::Loop)?;
 
             let value = if token_buffer.want_peek(TokenKind::ParenthesisBegin) {
-                //if let Some(token) = token_buffer.peek_ahead(1)
-                //    && token.class.kind() == TokenKind::Definition
-                //{
-                //    Some(IterationValue::Iterational(Assignment::parse_token(
-                //        token_buffer,
-                //    )?))
-                //} else {
-
                 token_buffer.want(TokenKind::ParenthesisBegin)?;
-                let value = Expression::parse_token(token_buffer, 0.0)?;
+
+                let value = if let Some(token) = token_buffer.peek_ahead(1)
+                    && token.class.kind() == TokenKind::Definition
+                {
+                    let lhs = Expression::parse_token(token_buffer, 0.0)?;
+                    token_buffer.want(TokenKind::Definition)?;
+                    let rhs = Expression::parse_token(token_buffer, 0.0)?;
+
+                    IterationValue::Iterational { lhs, rhs }
+                } else {
+                    let value = Expression::parse_token(token_buffer, 0.0)?;
+
+                    IterationValue::Conditional(value)
+                };
+
                 token_buffer.want(TokenKind::ParenthesisClose)?;
 
-                Some(IterationValue::Conditional(value))
-                //}
+                Some(value)
             } else {
                 None
             };
@@ -78,7 +84,10 @@ impl Iteration {
     pub fn analyze(&mut self, scope: ScopePointer) -> Result<(), Error> {
         if let Some(value) = &self.value {
             match value {
-                IterationValue::Iterational(assignment) => assignment.analyze(&scope.borrow())?,
+                IterationValue::Iterational { lhs, rhs } => {
+                    lhs.analyze_identifier()?;
+                    rhs.analyze(&scope.borrow(), None)?;
+                }
                 IterationValue::Conditional(expression) => {
                     expression.analyze(&scope.borrow(), None)?;
                 }
@@ -96,7 +105,7 @@ impl Iteration {
 
         if let Some(value) = &self.value {
             match value {
-                IterationValue::Iterational(assignment) => todo!(),
+                IterationValue::Iterational { lhs, rhs } => todo!(),
                 IterationValue::Conditional(expression) => {
                     expression.compile(scope, function)?;
 

@@ -96,7 +96,7 @@ impl Token {
                     inside_string = !inside_string;
                 }
                 '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ';' | ',' | '&' | '<' | '>'
-                | '+' | '-' | '*' | '/' => {
+                | '+' | '-' | '*' | '/' | '%' => {
                     if character == '.' && inside_number {
                         line_buffer.push(character);
                         continue;
@@ -111,6 +111,7 @@ impl Token {
                             let assign_s = character == '-';
                             let assign_m = character == '*';
                             let assign_d = character == '/';
+                            let assign_mo = character == '%';
                             let gte = character == '>';
                             let lte = character == '<';
 
@@ -119,6 +120,7 @@ impl Token {
                                 || assign_s
                                 || assign_m
                                 || assign_d
+                                || assign_mo
                                 || gte
                                 || lte)
                                 && peek == '='
@@ -222,10 +224,12 @@ pub enum TokenClass {
     DefinitionSubtract,
     DefinitionMultiply,
     DefinitionDivide,
+    DefinitionModulo,
     Add,
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     GT,
     LT,
     Equal,
@@ -290,10 +294,12 @@ impl TokenClass {
             "-="        => Self::DefinitionSubtract,
             "*="        => Self::DefinitionMultiply,
             "/="        => Self::DefinitionDivide,
+            "%="        => Self::DefinitionModulo,
             "+"         => Self::Add,
             "-"         => Self::Subtract,
             "*"         => Self::Multiply,
             "/"         => Self::Divide,
+            "%"         => Self::Modulo,
             ">"         => Self::GT,
             "<"         => Self::LT,
             "="         => Self::Equal,
@@ -362,10 +368,12 @@ impl TokenClass {
             Self::DefinitionSubtract => TokenKind::DefinitionSubtract,
             Self::DefinitionMultiply => TokenKind::DefinitionMultiply,
             Self::DefinitionDivide   => TokenKind::DefinitionDivide,
+            Self::DefinitionModulo   => TokenKind::DefinitionModulo,
             Self::Add                => TokenKind::Add,
             Self::Subtract           => TokenKind::Subtract,
             Self::Multiply           => TokenKind::Multiply,
             Self::Divide             => TokenKind::Divide,
+            Self::Modulo             => TokenKind::Modulo,
             Self::GT                 => TokenKind::GT,
             Self::LT                 => TokenKind::LT,
             Self::Equal              => TokenKind::Equal,
@@ -415,10 +423,12 @@ pub enum TokenKind {
     DefinitionSubtract,
     DefinitionMultiply,
     DefinitionDivide,
+    DefinitionModulo,
     Add,
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     GT,
     LT,
     Equal,
@@ -468,10 +478,12 @@ impl Display for TokenKind {
             Self::DefinitionSubtract => formatter.write_str("-="),
             Self::DefinitionMultiply => formatter.write_str("*="),
             Self::DefinitionDivide   => formatter.write_str("/="),
+            Self::DefinitionModulo   => formatter.write_str("%="),
             Self::Add                => formatter.write_str("+"),
             Self::Subtract           => formatter.write_str("-"),
             Self::Multiply           => formatter.write_str("*"),
             Self::Divide             => formatter.write_str("/"),
+            Self::Modulo             => formatter.write_str("%"),
             Self::GT                 => formatter.write_str(">"),
             Self::LT                 => formatter.write_str("<"),
             Self::Equal              => formatter.write_str("="),

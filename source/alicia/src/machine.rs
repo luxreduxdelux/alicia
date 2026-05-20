@@ -756,6 +756,7 @@ pub enum Instruction {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     Negate,
     Not,
     And,
@@ -902,11 +903,46 @@ impl Function {
                     match a {
                         Value::Integer(a) => {
                             let b = frame.pop_integer();
+
+                            if a == 0 {
+                                return Error::new_kind(ErrorKind::DivideError, None);
+                            }
+
                             frame.push(Value::Integer(b / a));
                         }
                         Value::Decimal(a) => {
                             let b = frame.pop_decimal();
+
+                            if a == 0.0 {
+                                return Error::new_kind(ErrorKind::DivideError, None);
+                            }
+
                             frame.push(Value::Decimal(b / a));
+                        }
+                        _ => panic!("Divide: Invalid value {a:?}"),
+                    }
+                }
+                Instruction::Modulo => {
+                    let a = frame.pop();
+
+                    match a {
+                        Value::Integer(a) => {
+                            let b = frame.pop_integer();
+
+                            if a == 0 {
+                                return Error::new_kind(ErrorKind::ModuloError, None);
+                            }
+
+                            frame.push(Value::Integer(b % a));
+                        }
+                        Value::Decimal(a) => {
+                            let b = frame.pop_decimal();
+
+                            if a == 0.0 {
+                                return Error::new_kind(ErrorKind::ModuloError, None);
+                            }
+
+                            frame.push(Value::Decimal(b % a));
                         }
                         _ => panic!("Divide: Invalid value {a:?}"),
                     }
