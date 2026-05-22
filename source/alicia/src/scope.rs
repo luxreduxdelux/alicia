@@ -31,10 +31,10 @@ struct Index {
 
 #[derive(Debug, Clone, Default)]
 pub struct Method {
-    pub string: OrderMap<FunctionNative>,
-    pub integer: OrderMap<FunctionNative>,
-    pub decimal: OrderMap<FunctionNative>,
-    pub array: OrderMap<FunctionNative>,
+    pub string: OrderMap<String, FunctionNative>,
+    pub integer: OrderMap<String, FunctionNative>,
+    pub decimal: OrderMap<String, FunctionNative>,
+    pub array: OrderMap<String, FunctionNative>,
 }
 
 pub type ScopePointer = Rc<RefCell<Scope>>;
@@ -42,7 +42,7 @@ pub type ScopePointer = Rc<RefCell<Scope>>;
 #[derive(Debug, Clone)]
 pub struct Scope {
     pub source: Vec<Source>,
-    pub symbol: OrderMap<Declaration>,
+    pub symbol: OrderMap<String, Declaration>,
     pub parent: Option<ScopePointer>,
     pub method: Method,
     index: Index,
@@ -297,7 +297,7 @@ impl Scope {
     }
 
     pub fn get_declaration(&self, name: Identifier) -> Option<Declaration> {
-        if let Some(declaration) = self.symbol.get(name.text.clone()) {
+        if let Some(declaration) = self.symbol.get(&name.text) {
             Some(declaration.clone())
         } else if let Some(parent) = &self.parent {
             let parent = parent.borrow();
@@ -308,15 +308,15 @@ impl Scope {
     }
 
     pub fn get_function_integer(&self, name: Identifier) -> Option<FunctionNative> {
-        self.method.integer.get(name.text).cloned()
+        self.method.integer.get(&name.text).cloned()
     }
 
     pub fn get_function_decimal(&self, name: Identifier) -> Option<FunctionNative> {
-        self.method.decimal.get(name.text).cloned()
+        self.method.decimal.get(&name.text).cloned()
     }
 
     pub fn get_function_array(&self, name: Identifier) -> Option<FunctionNative> {
-        self.method.array.get(name.text).cloned()
+        self.method.array.get(&name.text).cloned()
     }
 
     pub fn get_function(&self, name: Identifier) -> Option<Function> {
@@ -408,19 +408,18 @@ pub struct FunctionNative {
 }
 
 impl FunctionNative {
-    pub fn new(
+    pub const fn new(
         name: String,
         call: fn(&mut Machine, Argument) -> Option<Value>,
         enter: NativeArgument,
         leave: ValueType,
-        index: usize,
     ) -> Self {
         Self {
             name,
             call,
             enter,
             leave,
-            index,
+            index: 0,
         }
     }
 }

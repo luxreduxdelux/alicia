@@ -11,6 +11,7 @@ pub mod kind;
 pub mod resolve;
 pub mod statement;
 pub mod structure;
+pub mod switch;
 pub mod table;
 pub mod tuple;
 pub mod variable;

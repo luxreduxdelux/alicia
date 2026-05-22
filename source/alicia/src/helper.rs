@@ -3,7 +3,9 @@ use crate::error::*;
 //================================================================
 
 use core::slice::Iter;
+use std::collections::hash_map::Keys;
 use std::fmt::Display;
+use std::slice::IterMut;
 use std::{collections::HashMap, hash::Hash};
 
 //================================================================
@@ -82,12 +84,12 @@ impl From<Identifier> for String {
 //================================================================
 
 #[derive(Debug, Clone)]
-pub struct OrderMap<V> {
+pub struct OrderMap<K: Eq + Hash, V> {
     pub array: Vec<V>,
-    pub order: HashMap<String, usize>,
+    pub order: HashMap<K, usize>,
 }
 
-impl<V> Default for OrderMap<V> {
+impl<K: Eq + Hash, V> Default for OrderMap<K, V> {
     fn default() -> Self {
         Self {
             array: Default::default(),
@@ -96,8 +98,8 @@ impl<V> Default for OrderMap<V> {
     }
 }
 
-impl<V> OrderMap<V> {
-    pub fn insert(&mut self, key: String, value: V) {
+impl<K: Eq + Hash, V> OrderMap<K, V> {
+    pub fn insert(&mut self, key: K, value: V) {
         if let Some(index) = self.order.get(&key) {
             self.array[*index] = value;
         } else {
@@ -106,16 +108,46 @@ impl<V> OrderMap<V> {
         }
     }
 
-    pub fn get(&self, key: String) -> Option<&V> {
-        if let Some(index) = self.order.get(&key) {
+    pub fn get(&self, key: &K) -> Option<&V> {
+        if let Some(index) = self.order.get(key) {
             self.array.get(*index)
         } else {
             None
         }
     }
 
-    pub fn iterate(&self) -> Iter<'_, V> {
+    pub fn get_index(&self, index: usize) -> Option<&V> {
+        self.array.get(index)
+    }
+
+    pub fn len(&self) -> usize {
+        self.array.len()
+    }
+
+    pub fn iterate(&self) -> Vec<(&K, &V)> {
+        let mut result = Vec::with_capacity(self.len());
+
+        for (v_i, value) in self.array.iter().enumerate() {
+            for (key, k_i) in &self.order {
+                if v_i == *k_i {
+                    result.push((key, value));
+                }
+            }
+        }
+
+        result
+    }
+
+    pub fn keys(&self) -> Keys<'_, K, usize> {
+        self.order.keys()
+    }
+
+    pub fn values(&self) -> Iter<'_, V> {
         self.array.iter()
+    }
+
+    pub fn values_mut(&mut self) -> IterMut<'_, V> {
+        self.array.iter_mut()
     }
 }
 

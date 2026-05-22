@@ -72,8 +72,6 @@ enum CommandError {
     MissingArgument(String, String),
     #[error("error: missing main function \"{0}\" in source file \"{1}\"")]
     MissingFunction(String, String),
-    #[error("error: invalid main function \"{0}\" in source file \"{1}\"")]
-    InvalidFunction(String, String),
     #[error("error: {0}")]
     AliciaError(Error),
 }
@@ -107,14 +105,18 @@ fn main() {
     match command {
         Ok(command) => match command {
             Command::Help => {
-                println!("Alicia 1.0.0");
+                println!(
+                    "Alicia (language version: {}, binary version: {})\n",
+                    Instance::VERSION,
+                    env!("CARGO_PKG_VERSION")
+                );
                 println!("--help: Show this help message.");
                 println!("--path {{path}}: Load a given source file.");
                 println!("--main {{name}}: Load a given \"main\" function name.");
             }
 
             Command::Run(run) => {
-                let path = run.path.unwrap_or("src/test.alicia".to_string());
+                let path = run.path.unwrap_or("src/main.alicia".to_string());
                 let main = run.main.unwrap_or("main".to_string());
 
                 unsafe {

@@ -79,7 +79,7 @@ impl Machine {
     }
 
     pub fn compile(&mut self, scope: &Scope) -> Result<(), Error> {
-        for value in scope.symbol.clone().iterate() {
+        for value in scope.symbol.clone().values() {
             match value {
                 Declaration::Function(f) => {
                     let compile = f.compile(scope)?;
@@ -96,7 +96,7 @@ impl Machine {
                     self.function_native.insert(f.name.clone(), f.clone());
                 }
                 Declaration::Structure(s) => {
-                    for (_, function) in &s.function {
+                    for (_, function) in &s.function.iterate() {
                         let compile = function.compile(scope)?;
 
                         self.function.insert_index_only(compile);
@@ -105,7 +105,7 @@ impl Machine {
                     self.structure.insert(s.name.text.clone(), s.clone());
                 }
                 Declaration::Enumerate(e) => {
-                    for (_, function) in &e.function {
+                    for (_, function) in &e.function.iterate() {
                         let compile = function.compile(scope)?;
 
                         self.function.insert_index_only(compile);
@@ -762,6 +762,14 @@ pub enum Instruction {
     Divide,
     Modulo,
     Negate,
+    LogicalAnd,
+    LogicalOr,
+    LogicalAndX,
+    LogicalOrX,
+    ExclusiveOr,
+    LogicalNot,
+    ShiftL,
+    ShiftR,
     Not,
     And,
     Or,
@@ -776,8 +784,7 @@ pub enum Instruction {
     Return(bool),
     PushReference(usize),
     PushStructure(usize),
-    // TO-DO use usize, usize
-    PushEnumerate(EnumerateD, String),
+    PushEnumerate(usize, usize),
     PushArray(usize),
     PushTable(usize),
     PushTuple(usize),
@@ -937,7 +944,7 @@ impl Function {
                                 return Error::new_kind(ErrorKind::ModuloError, None);
                             }
 
-                            frame.push(Value::Integer(b % a));
+                            frame.push(Value::Integer(b.rem_euclid(a)));
                         }
                         Value::Decimal(a) => {
                             let b = frame.pop_decimal();
@@ -946,7 +953,7 @@ impl Function {
                                 return Error::new_kind(ErrorKind::ModuloError, None);
                             }
 
-                            frame.push(Value::Decimal(b % a));
+                            frame.push(Value::Decimal(b.rem_euclid(a)));
                         }
                         _ => panic!("Divide: Invalid value {a:?}"),
                     }
@@ -964,6 +971,53 @@ impl Function {
                         _ => panic!("Negate: Invalid value {a:?}"),
                     }
                 }
+                Instruction::LogicalAnd => {
+                    let a = frame.pop_integer();
+                    let b = frame.pop_integer();
+
+                    frame.push(Value::Integer(b & a));
+                }
+                Instruction::LogicalOr => {
+                    let a = frame.pop_integer();
+                    let b = frame.pop_integer();
+
+                    frame.push(Value::Integer(b | a));
+                }
+                Instruction::LogicalAndX => {
+                    let a = frame.pop_integer();
+                    let b = frame.pop_integer();
+
+                    frame.push(Value::Boolean((b & a) > 0));
+                }
+                Instruction::LogicalOrX => {
+                    let a = frame.pop_integer();
+                    let b = frame.pop_integer();
+
+                    frame.push(Value::Boolean((b | a) > 0));
+                }
+                Instruction::ExclusiveOr => {
+                    let a = frame.pop_integer();
+                    let b = frame.pop_integer();
+
+                    frame.push(Value::Integer(b ^ a));
+                }
+                Instruction::LogicalNot => {
+                    let a = frame.pop_integer();
+
+                    frame.push(Value::Integer(!a));
+                }
+                Instruction::ShiftL => {
+                    let a = frame.pop_integer();
+                    let b = frame.pop_integer();
+
+                    frame.push(Value::Integer(b << a));
+                }
+                Instruction::ShiftR => {
+                    let a = frame.pop_integer();
+                    let b = frame.pop_integer();
+
+                    frame.push(Value::Integer(b >> a));
+                }
                 Instruction::PushReference(index) => {
                     let value = frame.load_pointer(&index);
                     frame.push(Value::Reference(value));
@@ -973,7 +1027,7 @@ impl Function {
                     let mut s = Structure::new(index.name.text.clone());
 
                     // TO-DO respect actual ordering
-                    for variable in &index.variable {
+                    for _ in index.variable.iterate() {
                         //s.data
                         //    .insert(variable.0.to_string(), Rc::new(RefCell::new(frame.pop())));
                         s.insert(frame.pop());
@@ -981,11 +1035,12 @@ impl Function {
 
                     frame.push(Value::Structure(s));
                 }
-                Instruction::PushEnumerate(enumerate, kind) => {
-                    let k = enumerate.variable.get(&kind).unwrap();
-                    let mut e = Enumerate::new(enumerate.name.text.clone(), kind.to_string());
+                Instruction::PushEnumerate(index, index_kind) => {
+                    let index = machine.enumerate.get(index).unwrap();
+                    let kind = index.variable.get_index(index_kind).unwrap();
+                    let mut e = Enumerate::new(index.name.text.clone(), "TO-DO".to_string());
 
-                    for _ in k {
+                    for _ in kind {
                         e.data.push(frame.pop());
                     }
 

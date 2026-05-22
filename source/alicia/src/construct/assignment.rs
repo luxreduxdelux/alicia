@@ -58,10 +58,42 @@ impl Assignment {
                         Box::new(value),
                     ),
                 },
+                TokenKind::DefinitionModulo => Expression {
+                    span: value.span.clone(),
+                    data: ExpressionData::Operation(
+                        ExpressionOperator::Modulo,
+                        Box::new(path.clone()),
+                        Box::new(value),
+                    ),
+                },
+                TokenKind::DefinitionAnd => Expression {
+                    span: value.span.clone(),
+                    data: ExpressionData::Operation(
+                        ExpressionOperator::LogicalAnd,
+                        Box::new(path.clone()),
+                        Box::new(value),
+                    ),
+                },
+                TokenKind::DefinitionOr => Expression {
+                    span: value.span.clone(),
+                    data: ExpressionData::Operation(
+                        ExpressionOperator::LogicalOr,
+                        Box::new(path.clone()),
+                        Box::new(value),
+                    ),
+                },
+                TokenKind::DefinitionExclusiveOr => Expression {
+                    span: value.span.clone(),
+                    data: ExpressionData::Operation(
+                        ExpressionOperator::ExclusiveOr,
+                        Box::new(path.clone()),
+                        Box::new(value),
+                    ),
+                },
                 _ => value,
             };
 
-            println!("assignment: {value:?}");
+            //println!("assignment: {value:?}");
 
             Ok(Self {
                 span: token_buffer.get_span(),

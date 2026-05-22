@@ -54,8 +54,8 @@ impl StructureD {
             panic!("structure literal: mis-match in field count")
         }
 
-        for (field, variable) in &structure.variable {
-            let value = self.list.get(field).unwrap();
+        for (field, variable) in &structure.variable.iterate() {
+            let value = self.list.get(*field).unwrap();
             let target = variable.analyze(scope)?;
             let source = value.analyze(scope, Some(target.clone()))?;
 
@@ -75,18 +75,18 @@ pub struct Structure {
     pub name: Identifier,
     pub kind: Option<Vec<Identifier>>,
     pub parent: Option<Identifier>,
-    pub variable: BTreeMap<String, Variable>,
-    pub function: BTreeMap<String, Function>,
+    pub variable: OrderMap<String, Variable>,
+    pub function: OrderMap<String, Function>,
     pub index: Option<usize>,
-    pub index_variable: BTreeMap<String, usize>,
+    pub index_variable: OrderMap<String, usize>,
 }
 
 impl Structure {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Structure, |token_buffer| {
-            let mut variable = BTreeMap::new();
-            let mut function = BTreeMap::new();
-            let mut index_variable = BTreeMap::default();
+            let mut variable = OrderMap::default();
+            let mut function = OrderMap::default();
+            let mut index_variable = OrderMap::default();
 
             token_buffer.want(TokenKind::Structure)?;
 

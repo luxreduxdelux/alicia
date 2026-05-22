@@ -104,8 +104,8 @@ impl ExpressionValue {
                         return Ok(Self::Structure(StructureD::parse_token(token_buffer)?));
                     }
 
-                    if let Some(token) = token_buffer.peek_ahead(3)
-                        && token.class.kind() == TokenKind::CurlyBegin
+                    if let Some(token) = token_buffer.peek_ahead(1)
+                        && token.class.kind() == TokenKind::Colon
                     {
                         return Ok(Self::Enumerate(EnumerateD::parse_token(token_buffer)?));
                     }
@@ -113,7 +113,7 @@ impl ExpressionValue {
                     Ok(Self::Identifier(token_buffer.want_identifier()?))
                 }
                 TokenClass::SelfLower => {
-                    println!("found self lower");
+                    //println!("found self lower");
 
                     Ok(Self::Identifier(
                         Identifier::from_string("self".to_string(), token.point).unwrap(),
@@ -181,6 +181,14 @@ pub enum ExpressionOperator {
     LTE,
     EqualNot,
     Reference,
+    LogicalAnd,
+    LogicalOr,
+    LogicalAndX,
+    LogicalOrX,
+    ExclusiveOr,
+    LogicalNot,
+    ShiftL,
+    ShiftR,
     Invocation(Vec<Expression>),
     IndexationEntry(Option<Box<Expression>>),
     IndexationField(Option<Box<Expression>>),
@@ -190,24 +198,32 @@ impl ExpressionOperator {
     #[rustfmt::skip]
     fn from_token(token: Token) -> Self {
         match token.class.kind() {
-            TokenKind::Add              => Self::Add,
-            TokenKind::Subtract         => Self::Subtract,
-            TokenKind::Multiply         => Self::Multiply,
-            TokenKind::Divide           => Self::Divide,
-            TokenKind::Modulo           => Self::Modulo,
-            TokenKind::Not              => Self::Not,
-            TokenKind::And              => Self::And,
-            TokenKind::Or               => Self::Or,
-            TokenKind::GT               => Self::GT,
-            TokenKind::LT               => Self::LT,
-            TokenKind::Equal            => Self::Equal,
-            TokenKind::GTE              => Self::GTE,
-            TokenKind::LTE              => Self::LTE,
-            TokenKind::EqualNot         => Self::EqualNot,
-            TokenKind::Ampersand        => Self::Reference,
-            TokenKind::ParenthesisBegin => Self::Invocation(Vec::default()),
-            TokenKind::SquareBegin      => Self::IndexationEntry(None),
-            TokenKind::Dot              => Self::IndexationField(None),
+            TokenKind::Add               => Self::Add,
+            TokenKind::Subtract          => Self::Subtract,
+            TokenKind::Multiply          => Self::Multiply,
+            TokenKind::Divide            => Self::Divide,
+            TokenKind::Modulo            => Self::Modulo,
+            TokenKind::Not               => Self::Not,
+            TokenKind::And               => Self::And,
+            TokenKind::Or                => Self::Or,
+            TokenKind::GT                => Self::GT,
+            TokenKind::LT                => Self::LT,
+            TokenKind::Equal             => Self::Equal,
+            TokenKind::GTE               => Self::GTE,
+            TokenKind::LTE               => Self::LTE,
+            TokenKind::EqualNot          => Self::EqualNot,
+            TokenKind::At                => Self::Reference,
+            TokenKind::Ampersand         => Self::LogicalAnd,
+            TokenKind::Pipe              => Self::LogicalOr,
+            TokenKind::AmpersandQuestion => Self::LogicalAndX,
+            TokenKind::PipeQuestion      => Self::LogicalOrX,
+            TokenKind::Exponent          => Self::ExclusiveOr,
+            TokenKind::Tilde             => Self::LogicalNot,
+            TokenKind::ShiftL            => Self::ShiftL,
+            TokenKind::ShiftR            => Self::ShiftR,
+            TokenKind::ParenthesisBegin  => Self::Invocation(Vec::default()),
+            TokenKind::SquareBegin       => Self::IndexationEntry(None),
+            TokenKind::Dot               => Self::IndexationField(None),
             _ => panic!(
                 "Alicia internal error: ExpressionValue::parse_token(): want_token() gave back a token that is not a possible value"
             ),
@@ -219,6 +235,7 @@ impl ExpressionOperator {
         let token_a = Box::new(token_a);
 
         match self {
+            Self::LogicalNot         => ExpressionData::OperationPrior(Self::LogicalNot, token_a),
             Self::Subtract           => ExpressionData::OperationPrior(Self::Subtract,   token_a),
             Self::Reference          => ExpressionData::OperationPrior(Self::Reference,  token_a),
             Self::Invocation(_)      => ExpressionData::OperationAfter(token_a, self.clone()),
@@ -234,18 +251,25 @@ impl ExpressionOperator {
         let token_b = Box::new(token_b);
 
         match self {
-            Self::Add                => ExpressionData::Operation(Self::Add,      token_a, token_b),
-            Self::Subtract           => ExpressionData::Operation(Self::Subtract, token_a, token_b),
-            Self::Multiply           => ExpressionData::Operation(Self::Multiply, token_a, token_b),
-            Self::Divide             => ExpressionData::Operation(Self::Divide,   token_a, token_b),
-            Self::Modulo             => ExpressionData::Operation(Self::Modulo,   token_a, token_b),
-            Self::And                => ExpressionData::Operation(Self::And,      token_a, token_b),
-            Self::Or                 => ExpressionData::Operation(Self::Or,       token_a, token_b),
-            Self::GT                 => ExpressionData::Operation(Self::GT,       token_a, token_b),
-            Self::LT                 => ExpressionData::Operation(Self::LT,       token_a, token_b),
-            Self::Equal              => ExpressionData::Operation(Self::Equal,    token_a, token_b),
-            Self::GTE                => ExpressionData::Operation(Self::GTE,      token_a, token_b),
-            Self::LTE                => ExpressionData::Operation(Self::LTE,      token_a, token_b),
+            Self::Add                => ExpressionData::Operation(Self::Add,         token_a, token_b),
+            Self::Subtract           => ExpressionData::Operation(Self::Subtract,    token_a, token_b),
+            Self::Multiply           => ExpressionData::Operation(Self::Multiply,    token_a, token_b),
+            Self::Divide             => ExpressionData::Operation(Self::Divide,      token_a, token_b),
+            Self::Modulo             => ExpressionData::Operation(Self::Modulo,      token_a, token_b),
+            Self::And                => ExpressionData::Operation(Self::And,         token_a, token_b),
+            Self::Or                 => ExpressionData::Operation(Self::Or,          token_a, token_b),
+            Self::GT                 => ExpressionData::Operation(Self::GT,          token_a, token_b),
+            Self::LT                 => ExpressionData::Operation(Self::LT,          token_a, token_b),
+            Self::Equal              => ExpressionData::Operation(Self::Equal,       token_a, token_b),
+            Self::GTE                => ExpressionData::Operation(Self::GTE,         token_a, token_b),
+            Self::LTE                => ExpressionData::Operation(Self::LTE,         token_a, token_b),
+            Self::LogicalAnd         => ExpressionData::Operation(Self::LogicalAnd,  token_a, token_b),
+            Self::LogicalOr          => ExpressionData::Operation(Self::LogicalOr,   token_a, token_b),
+            Self::LogicalAndX        => ExpressionData::Operation(Self::LogicalAndX, token_a, token_b),
+            Self::LogicalOrX         => ExpressionData::Operation(Self::LogicalOrX,  token_a, token_b),
+            Self::ExclusiveOr        => ExpressionData::Operation(Self::ExclusiveOr, token_a, token_b),
+            Self::ShiftL             => ExpressionData::Operation(Self::ShiftL,      token_a, token_b),
+            Self::ShiftR             => ExpressionData::Operation(Self::ShiftR,      token_a, token_b),
             Self::EqualNot           => ExpressionData::Operation(Self::EqualNot, token_a, token_b),
             Self::IndexationField(_) => ExpressionData::OperationAfter(token_a, Self::IndexationField(Some(token_b))),
             x => panic!("incorrect parse_token_binary operator: {x:?}, {token_a:#?}, {token_b:#?}")
@@ -257,9 +281,17 @@ impl ExpressionOperator {
         match self {
             Self::Add                => (1.0, 1.1),
             Self::Subtract           => (1.0, 1.1),
+            Self::LogicalAnd         => (1.0, 1.1),
+            Self::LogicalOr          => (1.0, 1.1),
+            Self::LogicalAndX        => (1.0, 1.1),
+            Self::LogicalOrX         => (1.0, 1.1),
+            Self::ExclusiveOr        => (1.0, 1.1),
+            Self::LogicalNot         => (1.0, 1.1),
             Self::Multiply           => (2.0, 2.1),
             Self::Divide             => (2.0, 2.1),
             Self::Modulo             => (2.0, 2.1),
+            Self::ShiftL             => (2.0, 2.1),
+            Self::ShiftR             => (2.0, 2.1),
             // TO-DO add actual bind power to these
             Self::Not                => (1.0, 1.1),
             Self::And                => (1.0, 1.1),
@@ -359,6 +391,7 @@ impl Expression {
         }
     }
 
+    #[rustfmt::skip]
     fn analyze_operation(
         &self,
         scope: &Scope,
@@ -380,32 +413,54 @@ impl Expression {
             panic!("type mismatch: {:?} != {:?}", a, b);
         }
 
-        if a.is_number() {
+        if a == ExpressionKind::Integer {
             match operator {
-                ExpressionOperator::Add => Ok(a),
-                ExpressionOperator::Subtract => Ok(a),
-                ExpressionOperator::Multiply => Ok(a),
-                ExpressionOperator::Divide => Ok(a),
-                ExpressionOperator::Modulo => Ok(a),
-                ExpressionOperator::GT => Ok(ExpressionKind::Boolean),
-                ExpressionOperator::LT => Ok(ExpressionKind::Boolean),
-                ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
-                ExpressionOperator::GTE => Ok(ExpressionKind::Boolean),
-                ExpressionOperator::LTE => Ok(ExpressionKind::Boolean),
-                ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Add         => Ok(a),
+                ExpressionOperator::Subtract    => Ok(a),
+                ExpressionOperator::Multiply    => Ok(a),
+                ExpressionOperator::Divide      => Ok(a),
+                ExpressionOperator::Modulo      => Ok(a),
+                ExpressionOperator::GT          => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::LT          => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Equal       => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::GTE         => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::LTE         => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::EqualNot    => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::LogicalAnd  => Ok(a),
+                ExpressionOperator::LogicalOr   => Ok(a),
+                ExpressionOperator::LogicalAndX => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::LogicalOrX  => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::ExclusiveOr => Ok(a),
+                ExpressionOperator::ShiftL      => Ok(a),
+                ExpressionOperator::ShiftR      => Ok(a),
+                _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
+            }
+        } else if a == ExpressionKind::Decimal {
+            match operator {
+                ExpressionOperator::Add         => Ok(a),
+                ExpressionOperator::Subtract    => Ok(a),
+                ExpressionOperator::Multiply    => Ok(a),
+                ExpressionOperator::Divide      => Ok(a),
+                ExpressionOperator::Modulo      => Ok(a),
+                ExpressionOperator::GT          => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::LT          => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Equal       => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::GTE         => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::LTE         => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::EqualNot    => Ok(ExpressionKind::Boolean),
                 _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
             }
         } else if a == ExpressionKind::Boolean {
             match operator {
-                ExpressionOperator::And => Ok(ExpressionKind::Boolean),
-                ExpressionOperator::Or => Ok(ExpressionKind::Boolean),
-                ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::And      => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Or       => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Equal    => Ok(ExpressionKind::Boolean),
                 ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
                 _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
             }
         } else {
             match operator {
-                ExpressionOperator::Equal => Ok(ExpressionKind::Boolean),
+                ExpressionOperator::Equal    => Ok(ExpressionKind::Boolean),
                 ExpressionOperator::EqualNot => Ok(ExpressionKind::Boolean),
                 _ => panic!("unsupported operator {operator:?} for value of type {a:?}"),
             }
@@ -421,7 +476,15 @@ impl Expression {
     ) -> Result<ExpressionKind, Error> {
         let value = value.analyze(scope, infer)?;
 
-        if value.is_number() {
+        if value == ExpressionKind::Integer {
+            match operator {
+                ExpressionOperator::LogicalNot => Ok(value),
+                ExpressionOperator::Subtract => Ok(value),
+                _ => {
+                    panic!("unsupported operator {operator:?} for value of type {value:?}")
+                }
+            }
+        } else if value == ExpressionKind::Decimal {
             match operator {
                 ExpressionOperator::Subtract => Ok(value),
                 _ => {
@@ -607,7 +670,7 @@ impl Expression {
                             if let ExpressionKind::Identifier(ref i) = kind {
                                 let index = scope.get_function_decimal(i.clone()).unwrap();
 
-                                println!("{index:#?}");
+                                //println!("{index:#?}");
 
                                 return Ok(index.leave.into_kind(scope));
                             }
@@ -644,7 +707,7 @@ impl Expression {
                             if let ExpressionKind::Identifier(ref i) = kind {
                                 let index = structure.function.get(&i.text).unwrap();
 
-                                println!("found function {i:?}");
+                                //println!("found function {i:?}");
 
                                 if let Some(leave) = &index.leave {
                                     return leave.type_check(scope);
@@ -967,7 +1030,7 @@ impl Expression {
                 ExpressionValue::Structure(value) => {
                     let structure = scope.get_structure(value.name.clone()).unwrap();
 
-                    for field in structure.variable.keys().rev() {
+                    for (field, _) in structure.variable.iterate().into_iter().rev() {
                         let value = value.list.get(field).unwrap();
                         value.compile(scope, function)?;
                     }
@@ -976,15 +1039,13 @@ impl Expression {
                 }
                 ExpressionValue::Enumerate(value) => {
                     let enumerate = scope.get_enumerate(value.name.clone()).unwrap();
+                    let kind = enumerate.index_variable.get(&value.kind.text).unwrap();
 
                     for l in value.list.iter().rev() {
                         l.compile(scope, function)?;
                     }
 
-                    function.push(Instruction::PushEnumerate(
-                        enumerate.clone(),
-                        value.kind.text.clone(),
-                    ))
+                    function.push(Instruction::PushEnumerate(enumerate.index.unwrap(), *kind))
                 }
                 ExpressionValue::Array(value) => {
                     for l in value.list.iter().rev() {
@@ -1028,10 +1089,22 @@ impl Expression {
                     ExpressionOperator::GTE => function.push(Instruction::GTE),
                     ExpressionOperator::LTE => function.push(Instruction::LTE),
                     ExpressionOperator::EqualNot => function.push(Instruction::EqualNot),
+                    ExpressionOperator::LogicalAnd => function.push(Instruction::LogicalAnd),
+                    ExpressionOperator::LogicalOr => function.push(Instruction::LogicalOr),
+                    ExpressionOperator::LogicalAndX => function.push(Instruction::LogicalAndX),
+                    ExpressionOperator::LogicalOrX => function.push(Instruction::LogicalOrX),
+                    ExpressionOperator::ExclusiveOr => function.push(Instruction::ExclusiveOr),
+                    ExpressionOperator::ShiftL => function.push(Instruction::ShiftL),
+                    ExpressionOperator::ShiftR => function.push(Instruction::ShiftR),
                     _ => todo!(),
                 }
             }
             ExpressionData::OperationPrior(operator, value) => match operator {
+                ExpressionOperator::LogicalNot => {
+                    value.compile(scope, function)?;
+
+                    function.push(Instruction::LogicalNot)
+                }
                 ExpressionOperator::Reference => {
                     let identifier = value.analyze_identifier()?;
 
@@ -1209,6 +1282,8 @@ impl Expression {
                                 if let ExpressionData::Value(v) = &e.data
                                     && let ExpressionValue::Identifier(i) = v
                                 {
+                                    value.load_identifier(scope, function, false);
+
                                     let index = structure.index_variable.get(&i.text).unwrap();
                                     function.push(Instruction::LoadField(*index));
                                 }

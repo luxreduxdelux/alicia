@@ -9,6 +9,10 @@ pub struct Instance {
     pub machine: Machine,
 }
 
+impl Instance {
+    pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+}
+
 #[derive(Default)]
 pub struct Builder {
     source: Option<Source>,

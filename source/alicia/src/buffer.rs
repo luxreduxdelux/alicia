@@ -266,7 +266,10 @@ impl TokenBuffer {
                 | TokenKind::DefinitionSubtract
                 | TokenKind::DefinitionMultiply
                 | TokenKind::DefinitionDivide
-                | TokenKind::DefinitionModulo => return Ok(next.clone()),
+                | TokenKind::DefinitionModulo
+                | TokenKind::DefinitionAnd
+                | TokenKind::DefinitionOr
+                | TokenKind::DefinitionExclusiveOr => return Ok(next.clone()),
                 _ => {
                     return Error::new_info(
                         ErrorInfo::new_token(
@@ -361,7 +364,15 @@ impl TokenBuffer {
                 | TokenKind::LTE
                 | TokenKind::EqualNot
                 | TokenKind::Dot
+                | TokenKind::At
                 | TokenKind::Ampersand
+                | TokenKind::AmpersandQuestion
+                | TokenKind::Pipe
+                | TokenKind::PipeQuestion
+                | TokenKind::Exponent
+                | TokenKind::Tilde
+                | TokenKind::ShiftL
+                | TokenKind::ShiftR
                 | TokenKind::ParenthesisBegin
                 | TokenKind::SquareBegin => {
                     return Ok(next.clone());
@@ -406,7 +417,15 @@ impl TokenBuffer {
                 | TokenKind::LTE
                 | TokenKind::EqualNot
                 | TokenKind::Dot
+                | TokenKind::At
                 | TokenKind::Ampersand
+                | TokenKind::AmpersandQuestion
+                | TokenKind::Pipe
+                | TokenKind::PipeQuestion
+                | TokenKind::Exponent
+                | TokenKind::Tilde
+                | TokenKind::ShiftL
+                | TokenKind::ShiftR
                 | TokenKind::ParenthesisBegin
                 | TokenKind::SquareBegin => return Some(next),
                 _ => return None,

@@ -116,6 +116,9 @@ impl Block {
                 Statement::Iteration(iteration) => {
                     iteration.analyze(scope_block.clone())?;
                 }
+                Statement::Switch(switch) => {
+                    //switch.analyze(scope_block.clone())?;
+                }
                 Statement::Block(block) => {
                     block.analyze(scope_block.clone(), Vec::default(), false)?;
                 }

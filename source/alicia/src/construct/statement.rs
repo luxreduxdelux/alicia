@@ -8,6 +8,7 @@ use super::function::*;
 use super::iteration::*;
 use super::resolve::*;
 use super::structure::*;
+use super::switch::Switch;
 
 //================================================================
 
@@ -27,6 +28,7 @@ pub enum Statement {
     Expression(Expression),
     Condition(Condition),
     Iteration(Iteration),
+    Switch(Switch),
     Block(Block),
     Skip,
     Exit,
@@ -82,6 +84,9 @@ impl Statement {
             TokenClass::If        => Ok(Self::Condition(Condition::parse_token(
                 token_buffer,
                 false,
+            )?)),
+            TokenClass::Switch    => Ok(Self::Switch(Switch::parse_token(
+                token_buffer,
             )?)),
             TokenClass::Loop => Ok(Self::Iteration(Iteration::parse_token(token_buffer)?)),
             TokenClass::Skip => {

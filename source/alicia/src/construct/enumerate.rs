@@ -32,14 +32,20 @@ impl EnumerateD {
             token_buffer.want(TokenKind::Colon)?;
             let kind = token_buffer.want_identifier()?;
 
-            token_buffer.want(TokenKind::CurlyBegin)?;
+            if token_buffer.want_peek(TokenKind::ParenthesisBegin) {
+                token_buffer.want(TokenKind::ParenthesisBegin)?;
 
-            Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
-                list.push(Expression::parse_token(token_buffer, 0.0)?);
-                Ok(())
-            })?;
+                Statement::parse_comma(
+                    token_buffer,
+                    TokenKind::ParenthesisClose,
+                    |token_buffer| {
+                        list.push(Expression::parse_token(token_buffer, 0.0)?);
+                        Ok(())
+                    },
+                )?;
 
-            token_buffer.want(TokenKind::CurlyClose)?;
+                token_buffer.want(TokenKind::ParenthesisClose)?;
+            }
 
             Ok(Self { name, kind, list })
         })
@@ -49,16 +55,18 @@ impl EnumerateD {
 #[derive(Debug, Clone)]
 pub struct Enumerate {
     pub name: Identifier,
-    pub variable: BTreeMap<String, Vec<Identifier>>,
-    pub function: BTreeMap<String, Function>,
+    pub variable: OrderMap<String, Vec<Identifier>>,
+    pub function: OrderMap<String, Function>,
     pub index: Option<usize>,
+    pub index_variable: OrderMap<String, usize>,
 }
 
 impl Enumerate {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Enumerate, |token_buffer| {
-            let mut variable = BTreeMap::new();
-            let mut function = BTreeMap::new();
+            let mut variable = OrderMap::default();
+            let mut function = OrderMap::default();
+            let mut index_variable = OrderMap::default();
 
             token_buffer.want(TokenKind::Enumerate)?;
 
@@ -93,6 +101,7 @@ impl Enumerate {
                         token_buffer.want(TokenKind::ParenthesisClose)?;
                     }
 
+                    index_variable.insert(name.text.clone(), variable.len());
                     variable.insert(name.text, kind);
 
                     if let Some(token) = token_buffer.peek()
@@ -112,6 +121,7 @@ impl Enumerate {
                 variable,
                 function,
                 index: None,
+                index_variable,
             })
         })
     }
