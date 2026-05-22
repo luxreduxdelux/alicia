@@ -471,11 +471,11 @@ pub struct Enumerate {
     pub kind: String,
     pub index_name: usize,
     pub index_kind: usize,
-    pub data: Vec<Value>,
+    pub data: Vec<ValuePointer>,
 }
 
 impl Enumerate {
-    fn new(name: String, kind: String, index_name: usize, index_kind: usize) -> Self {
+    pub fn new(name: String, kind: String, index_name: usize, index_kind: usize) -> Self {
         Self {
             name,
             kind,
@@ -483,6 +483,10 @@ impl Enumerate {
             index_kind,
             data: Vec::default(),
         }
+    }
+
+    pub fn insert(&mut self, value: Value) {
+        self.data.push(Rc::new(RefCell::new(value)));
     }
 }
 
@@ -592,6 +596,8 @@ impl Display for Value {
                 let length = value.data.len();
 
                 for (i, v) in value.data.iter().enumerate() {
+                    let v = v.borrow();
+
                     if i == length - 1 {
                         formatter.write_str(&format!("{v} "))?;
                     } else {
@@ -814,6 +820,7 @@ pub enum Instruction {
     SaveIndexTuple,
     Load(usize),
     LoadField(usize),
+    LoadIndexEnumerate(usize),
     LoadIndexArray,
     LoadIndexTable,
     LoadIndexTuple,
@@ -1061,7 +1068,7 @@ impl Function {
                     );
 
                     for _ in kind {
-                        e.data.push(frame.pop());
+                        e.insert(frame.pop());
                     }
 
                     frame.push(Value::Enumerate(e));
@@ -1168,6 +1175,11 @@ impl Function {
                 }
                 Instruction::LoadField(index) => {
                     let value = frame.pop_structure();
+                    let value = value.data.get(index).unwrap().borrow().clone();
+                    frame.push(value);
+                }
+                Instruction::LoadIndexEnumerate(index) => {
+                    let value = frame.pop_enumerate();
                     let value = value.data.get(index).unwrap().borrow().clone();
                     frame.push(value);
                 }
@@ -1305,7 +1317,11 @@ impl Function {
                             let b = frame.pop_boolean();
                             frame.push(Value::Boolean(b == a));
                         }
-                        _ => todo!(),
+                        Value::Enumerate(a) => {
+                            let b = frame.pop_enumerate();
+                            frame.push(Value::Boolean(b == a));
+                        }
+                        _ => panic!("trying to compare {a:?}"),
                     }
                 }
                 Instruction::GTE => {

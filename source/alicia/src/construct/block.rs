@@ -190,6 +190,7 @@ impl Block {
                 Statement::Expression(expression) => { expression.compile(&block.borrow(), function)?; },
                 Statement::Condition(condition)   => { condition.compile(&block.borrow(), function)?;  },
                 Statement::Iteration(iteration)   => { iteration.compile(&block.borrow(), function)?;  },
+                Statement::Switch(switch)         => { switch.compile(&block.borrow(), function)?;     },
                 Statement::Block(b)               => { b.compile(&block.borrow(), function, false, None)?; },
                 Statement::Skip => if let Some(header) = header {
                     for v in variable_a..variable_b {

@@ -1,7 +1,7 @@
 use super::block::*;
 use super::expression::*;
-use super::kind::Kind;
 use super::statement::Statement;
+use crate::machine::Instruction;
 
 //================================================================
 
@@ -76,7 +76,7 @@ impl Switch {
 
                 token_buffer.want(TokenKind::CurlyClose)?;
             } else {
-                token_buffer.want(TokenKind::DefinitionVariable)?;
+                token_buffer.want(TokenKind::Equal)?;
 
                 let base = token_buffer.want_identifier()?;
                 token_buffer.want(TokenKind::Colon)?;
@@ -111,8 +111,6 @@ impl Switch {
     }
 
     pub fn analyze(&mut self, scope: ScopePointer) -> Result<(), Error> {
-        println!("enter analyze");
-
         self.value.analyze(&scope.borrow(), None)?;
 
         for branch in &mut self.branch {
@@ -138,6 +136,52 @@ impl Switch {
     }
 
     pub fn compile(&self, scope: &Scope, function: &mut MFunction) -> Result<(), Error> {
+        for branch in &self.branch {
+            self.value.compile(scope, function)?;
+
+            let b = scope.get_enumerate(branch.kind.0.clone()).unwrap();
+            let k = b.index_variable.get(&branch.kind.1.text).unwrap();
+
+            function.push(Instruction::IsEnumerate(b.index.unwrap(), *k));
+
+            let branch_cursor = function.cursor();
+
+            function.push(Instruction::Branch(0));
+
+            let scope_block = branch.block.scope.as_ref().unwrap().borrow();
+
+            for (i, variable) in branch.data.iter().enumerate() {
+                let declaration = scope_block.get_declaration(variable.clone()).unwrap();
+
+                if let Declaration::Definition(d) = declaration {
+                    let index = d.index.unwrap();
+
+                    // load the enumeration, then load a field from it, then save it
+                    self.value.compile(scope, function)?;
+
+                    function.push(Instruction::LoadIndexEnumerate(i));
+                    function.push(Instruction::Save(index));
+                }
+            }
+
+            branch.block.compile(scope, function, true, None)?;
+
+            let jump = function.cursor();
+
+            function.push(Instruction::Jump(0));
+
+            let tail = function.cursor();
+
+            function.change(Instruction::Branch(tail - 1), branch_cursor);
+
+            //if let Some(child) = &self.child {
+            //    child.compile(scope, function)?;
+            //}
+
+            // TO-DO might have to do this for each step in the branch?
+            function.change(Instruction::Jump(function.cursor()), jump);
+        }
+
         Ok(())
     }
 }
