@@ -1,10 +1,12 @@
 use super::block::*;
 use super::expression::*;
+use super::kind::Kind;
 use super::statement::Statement;
 
 //================================================================
 
 use crate::buffer::*;
+use crate::construct::variable::Variable;
 use crate::error::*;
 use crate::helper::Identifier;
 use crate::machine::Function as MFunction;
@@ -38,10 +40,44 @@ impl Switch {
 
             let mut branch = Vec::new();
 
-            token_buffer.want(TokenKind::CurlyBegin)?;
+            if token_buffer.want_peek(TokenKind::CurlyBegin) {
+                token_buffer.want(TokenKind::CurlyBegin)?;
 
-            Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
-                //
+                Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
+                    let base = token_buffer.want_identifier()?;
+                    token_buffer.want(TokenKind::Colon)?;
+                    let kind = token_buffer.want_identifier()?;
+
+                    let mut data = Vec::new();
+
+                    token_buffer.want(TokenKind::ParenthesisBegin)?;
+
+                    Statement::parse_comma(
+                        token_buffer,
+                        TokenKind::ParenthesisClose,
+                        |token_buffer| {
+                            data.push(token_buffer.want_identifier()?);
+                            Ok(())
+                        },
+                    )?;
+
+                    token_buffer.want(TokenKind::ParenthesisClose)?;
+
+                    let block = Block::parse_token(token_buffer)?;
+
+                    branch.push(SwitchBlock {
+                        kind: (base, kind),
+                        data,
+                        block,
+                    });
+
+                    Ok(())
+                })?;
+
+                token_buffer.want(TokenKind::CurlyClose)?;
+            } else {
+                token_buffer.want(TokenKind::DefinitionVariable)?;
+
                 let base = token_buffer.want_identifier()?;
                 token_buffer.want(TokenKind::Colon)?;
                 let kind = token_buffer.want_identifier()?;
@@ -68,19 +104,36 @@ impl Switch {
                     data,
                     block,
                 });
-
-                Ok(())
-            })?;
-
-            token_buffer.want(TokenKind::CurlyClose)?;
-
-            println!("value: {value:#?}, branch: {branch:#?}");
+            };
 
             Ok(Self { value, branch })
         })
     }
 
     pub fn analyze(&mut self, scope: ScopePointer) -> Result<(), Error> {
+        println!("enter analyze");
+
+        self.value.analyze(&scope.borrow(), None)?;
+
+        for branch in &mut self.branch {
+            let e = scope.borrow().get_enumerate(branch.kind.0.clone()).unwrap();
+            let k = e.variable.get(&branch.kind.1.text).unwrap();
+            let mut v = Vec::default();
+
+            for (i, kind) in k.iter().enumerate() {
+                let name = branch.data[i].clone();
+
+                v.push(Variable {
+                    // TO-DO cannot be default...
+                    span: TokenSpan::default(),
+                    name,
+                    kind: kind.clone(),
+                });
+            }
+
+            branch.block.analyze(scope.clone(), v, false)?;
+        }
+
         Ok(())
     }
 

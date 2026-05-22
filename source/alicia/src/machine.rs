@@ -292,6 +292,18 @@ impl Frame {
         }
     }
 
+    fn pop_enumerate(&mut self) -> Enumerate {
+        let pop = self.pop();
+
+        if let Value::Enumerate(value) = pop {
+            value
+        } else {
+            self.panic(format!(
+                "Frame::pop_enumerate(): Invalid value \"{pop:?}\"."
+            ))
+        }
+    }
+
     fn pop_reference(&mut self) -> ValuePointer {
         let pop = self.pop();
 
@@ -457,14 +469,18 @@ impl Structure {
 pub struct Enumerate {
     pub name: String,
     pub kind: String,
+    pub index_name: usize,
+    pub index_kind: usize,
     pub data: Vec<Value>,
 }
 
 impl Enumerate {
-    fn new(name: String, kind: String) -> Self {
+    fn new(name: String, kind: String, index_name: usize, index_kind: usize) -> Self {
         Self {
             name,
             kind,
+            index_name,
+            index_kind,
             data: Vec::default(),
         }
     }
@@ -755,7 +771,6 @@ impl Display for ValueKind {
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
-    Null,
     Add,
     Subtract,
     Multiply,
@@ -785,6 +800,7 @@ pub enum Instruction {
     PushReference(usize),
     PushStructure(usize),
     PushEnumerate(usize, usize),
+    IsEnumerate(usize, usize),
     PushArray(usize),
     PushTable(usize),
     PushTuple(usize),
@@ -862,7 +878,6 @@ impl Function {
             //println!("enter instruction: {instruction:?}");
 
             match instruction {
-                Instruction::Null => {}
                 Instruction::Add => {
                     let a = frame.pop();
 
@@ -1036,15 +1051,27 @@ impl Function {
                     frame.push(Value::Structure(s));
                 }
                 Instruction::PushEnumerate(index, index_kind) => {
-                    let index = machine.enumerate.get(index).unwrap();
-                    let kind = index.variable.get_index(index_kind).unwrap();
-                    let mut e = Enumerate::new(index.name.text.clone(), "TO-DO".to_string());
+                    let enumerate = machine.enumerate.get(index).unwrap();
+                    let kind = enumerate.variable.get_index(index_kind).unwrap();
+                    let mut e = Enumerate::new(
+                        enumerate.name.text.clone(),
+                        "TO-DO".to_string(),
+                        index,
+                        index_kind,
+                    );
 
                     for _ in kind {
                         e.data.push(frame.pop());
                     }
 
                     frame.push(Value::Enumerate(e));
+                }
+                Instruction::IsEnumerate(index, index_kind) => {
+                    let enumerate = frame.pop_enumerate();
+
+                    frame.push(Value::Boolean(
+                        enumerate.index_name == index && enumerate.index_kind == index_kind,
+                    ));
                 }
                 Instruction::PushArray(arity) => {
                     let mut a = Array::new();

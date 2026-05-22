@@ -105,6 +105,12 @@ impl Assignment {
     }
 
     pub fn analyze(&self, scope: &Scope) -> Result<(), Error> {
+        let definition = self.path.analyze_definition(scope)?;
+
+        if definition.constant {
+            panic!("attempting to assign value to constant")
+        }
+
         let source = self.value.analyze(scope, None)?;
         let target = self.path.analyze(scope, None)?;
 

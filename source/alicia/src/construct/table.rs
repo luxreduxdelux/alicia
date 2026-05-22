@@ -25,7 +25,7 @@ impl TableD {
 
             Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
                 let k = Expression::parse_token(token_buffer, 0.0)?;
-                token_buffer.want(TokenKind::Definition)?;
+                token_buffer.want(TokenKind::DefinitionVariable)?;
                 let v = Expression::parse_token(token_buffer, 0.0)?;
 
                 list.push((k, v));

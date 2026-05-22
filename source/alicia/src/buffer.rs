@@ -58,7 +58,7 @@ impl LineBuffer {
 
 //================================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TokenSpan {
     pub begin: Option<Point>,
     pub close: Option<Point>,
@@ -261,7 +261,7 @@ impl TokenBuffer {
             self.cursor += 1;
 
             match next.class.kind() {
-                TokenKind::Definition
+                TokenKind::DefinitionVariable
                 | TokenKind::DefinitionAdd
                 | TokenKind::DefinitionSubtract
                 | TokenKind::DefinitionMultiply

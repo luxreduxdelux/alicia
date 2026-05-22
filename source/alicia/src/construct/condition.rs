@@ -113,7 +113,7 @@ impl Condition {
 
             let branch = function.cursor();
 
-            function.push(Instruction::Null);
+            function.push(Instruction::Branch(0));
 
             Some(branch)
         } else {
@@ -124,7 +124,7 @@ impl Condition {
 
         let jump = function.cursor();
 
-        function.push(Instruction::Null);
+        function.push(Instruction::Jump(0));
 
         let tail = function.cursor();
 

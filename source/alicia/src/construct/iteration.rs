@@ -55,10 +55,10 @@ impl Iteration {
                 token_buffer.want(TokenKind::ParenthesisBegin)?;
 
                 let value = if let Some(token) = token_buffer.peek_ahead(1)
-                    && token.class.kind() == TokenKind::Definition
+                    && token.class.kind() == TokenKind::DefinitionVariable
                 {
                     let lhs = Expression::parse_token(token_buffer, 0.0)?;
-                    token_buffer.want(TokenKind::Definition)?;
+                    token_buffer.want(TokenKind::DefinitionVariable)?;
                     let rhs = Expression::parse_token(token_buffer, 0.0)?;
 
                     IterationValue::Iterational { lhs, rhs }
@@ -111,7 +111,7 @@ impl Iteration {
 
                     branch = Some(function.cursor());
 
-                    function.push(Instruction::Null);
+                    function.push(Instruction::Branch(0));
                 }
             }
         }

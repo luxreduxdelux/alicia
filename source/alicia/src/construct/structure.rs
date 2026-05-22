@@ -34,7 +34,7 @@ impl StructureD {
 
             Statement::parse_comma(token_buffer, TokenKind::CurlyClose, |token_buffer| {
                 let name = token_buffer.want_identifier()?.text;
-                token_buffer.want(TokenKind::Definition)?;
+                token_buffer.want(TokenKind::DefinitionVariable)?;
                 let value = Expression::parse_token(token_buffer, 0.0)?;
 
                 list.insert(name, value);

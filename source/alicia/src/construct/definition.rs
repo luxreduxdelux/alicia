@@ -17,6 +17,7 @@ use crate::token::*;
 pub struct Definition {
     pub span: TokenSpan,
     pub name: Identifier,
+    pub constant: bool,
     pub kind_i: Option<Kind>,
     pub kind_e: Option<ExpressionKind>,
     pub value: Expression,
@@ -38,13 +39,21 @@ impl Definition {
                 }
             };
 
-            token_buffer.want(TokenKind::Definition)?;
+            let constant = if token_buffer.want_peek(TokenKind::DefinitionVariable) {
+                token_buffer.want(TokenKind::DefinitionVariable)?;
+                false
+            } else {
+                token_buffer.want(TokenKind::DefinitionConstant)?;
+                true
+            };
+
             let value = Expression::parse_token(token_buffer, 0.0)?;
             token_buffer.want(TokenKind::ColonSemi)?;
 
             Ok(Self {
                 span: token_buffer.get_span(),
                 name,
+                constant,
                 kind_i,
                 kind_e: None,
                 value,

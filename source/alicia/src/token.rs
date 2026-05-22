@@ -138,10 +138,12 @@ impl Token {
                                 || bit_o
                                 || bit_x
                                 || bit_n)
-                                && (peek == '=' || peek == '<' || peek == '>' || peek == '?')
+                                && (peek == '='
+                                    || peek == '<'
+                                    || peek == '>'
+                                    || peek == '?'
+                                    || peek == ':')
                             {
-                                println!("found overload {character} and {peek}");
-
                                 line_buffer.push(character);
                                 line_buffer.next();
                                 line_buffer.push(peek);
@@ -245,7 +247,8 @@ pub enum TokenClass {
     Tilde,
     ShiftL,
     ShiftR,
-    Definition,
+    DefinitionVariable,
+    DefinitionConstant,
     DefinitionAdd,
     DefinitionSubtract,
     DefinitionMultiply,
@@ -327,7 +330,8 @@ impl TokenClass {
             "~"         => Self::Tilde,
             "<<"        => Self::ShiftL,
             ">>"        => Self::ShiftR,
-            ":="        => Self::Definition,
+            ":="        => Self::DefinitionVariable,
+            "::"        => Self::DefinitionConstant,
             "+="        => Self::DefinitionAdd,
             "-="        => Self::DefinitionSubtract,
             "*="        => Self::DefinitionMultiply,
@@ -425,7 +429,8 @@ impl TokenClass {
             Self::Tilde                 => TokenKind::Tilde,
             Self::ShiftL                => TokenKind::ShiftL,
             Self::ShiftR                => TokenKind::ShiftR,
-            Self::Definition            => TokenKind::Definition,
+            Self::DefinitionVariable    => TokenKind::DefinitionVariable,
+            Self::DefinitionConstant    => TokenKind::DefinitionConstant,
             Self::DefinitionAdd         => TokenKind::DefinitionAdd,
             Self::DefinitionSubtract    => TokenKind::DefinitionSubtract,
             Self::DefinitionMultiply    => TokenKind::DefinitionMultiply,
@@ -492,7 +497,8 @@ pub enum TokenKind {
     Tilde,
     ShiftL,
     ShiftR,
-    Definition,
+    DefinitionVariable,
+    DefinitionConstant,
     DefinitionAdd,
     DefinitionSubtract,
     DefinitionMultiply,
@@ -559,7 +565,8 @@ impl Display for TokenKind {
             Self::Tilde                 => formatter.write_str("~"),
             Self::ShiftL                => formatter.write_str("&"),
             Self::ShiftR                => formatter.write_str("&"),
-            Self::Definition            => formatter.write_str(":="),
+            Self::DefinitionVariable    => formatter.write_str(":="),
+            Self::DefinitionConstant    => formatter.write_str("::"),
             Self::DefinitionAdd         => formatter.write_str("+="),
             Self::DefinitionSubtract    => formatter.write_str("-="),
             Self::DefinitionMultiply    => formatter.write_str("*="),

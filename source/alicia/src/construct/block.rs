@@ -66,6 +66,7 @@ impl Block {
             let definition = Definition {
                 span: variable.span.clone(),
                 name: variable.name.clone(),
+                constant: false,
                 kind_i: Some(variable.kind.clone()),
                 kind_e: Some(kind),
                 // TO-DO will cause stack overflow
@@ -117,7 +118,7 @@ impl Block {
                     iteration.analyze(scope_block.clone())?;
                 }
                 Statement::Switch(switch) => {
-                    //switch.analyze(scope_block.clone())?;
+                    switch.analyze(scope_block.clone())?;
                 }
                 Statement::Block(block) => {
                     block.analyze(scope_block.clone(), Vec::default(), false)?;
@@ -204,7 +205,7 @@ impl Block {
 
                     exit.push(function.cursor());
 
-                    function.push(Instruction::Null);
+                    function.push(Instruction::Jump(0));
                 },
                 Statement::Return(r) => r.compile(&block.borrow(), function)?,
                 _ => {}

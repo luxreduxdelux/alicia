@@ -1,5 +1,6 @@
 use super::expression::*;
 use super::function::*;
+use super::kind::Kind;
 use super::statement::*;
 
 //================================================================
@@ -55,7 +56,7 @@ impl EnumerateD {
 #[derive(Debug, Clone)]
 pub struct Enumerate {
     pub name: Identifier,
-    pub variable: OrderMap<String, Vec<Identifier>>,
+    pub variable: OrderMap<String, Vec<Kind>>,
     pub function: OrderMap<String, Function>,
     pub index: Option<usize>,
     pub index_variable: OrderMap<String, usize>,
@@ -93,7 +94,7 @@ impl Enumerate {
                             token_buffer,
                             TokenKind::ParenthesisClose,
                             |token_buffer| {
-                                kind.push(token_buffer.want_identifier()?);
+                                kind.push(Kind::parse_token(token_buffer)?);
                                 Ok(())
                             },
                         )?;

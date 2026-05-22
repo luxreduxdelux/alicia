@@ -1,4 +1,5 @@
 use super::array::*;
+use super::definition::Definition;
 use super::enumerate::*;
 use super::statement::*;
 use super::structure::*;
@@ -40,6 +41,7 @@ pub enum ExpressionKind {
     Table(Box<ExpressionKind>, Box<ExpressionKind>),
     Tuple(Vec<ExpressionKind>),
     Reference(Box<ExpressionKind>),
+    //Constant(Box<ExpressionKind>),
 }
 
 #[rustfmt::skip]
@@ -54,12 +56,6 @@ impl PartialEq for ExpressionKind {
             (Self::Tuple(l0),     Self::Tuple(r0)) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
-    }
-}
-
-impl ExpressionKind {
-    fn is_number(&self) -> bool {
-        *self == Self::Integer || *self == Self::Decimal
     }
 }
 
@@ -346,6 +342,20 @@ impl Expression {
         }
     }
 
+    pub fn analyze_definition(&self, scope: &Scope) -> Result<Definition, Error> {
+        if let ExpressionData::Value(v) = &self.data {
+            if let ExpressionValue::Identifier(i) = v {
+                if let Some(value) = scope.get_declaration(i.clone()) {
+                    if let Declaration::Definition(definition) = value {
+                        return Ok(definition.clone());
+                    }
+                }
+            }
+        }
+
+        panic!("expression is not a definition")
+    }
+
     fn analyze_value(
         &self,
         scope: &Scope,
@@ -381,7 +391,12 @@ impl Expression {
                         }
                     }
                 } else {
-                    Ok(ExpressionKind::Identifier(identifier.clone()))
+                    Error::new_info(
+                        ErrorInfo::new_token(self.span.clone(), None, scope.get_active_source()),
+                        ErrorKind::UnknownSymbol(identifier.clone()),
+                        None,
+                    )
+                    //Ok(ExpressionKind::Identifier(identifier.clone()))
                 }
             }
             ExpressionValue::Structure(structure_d) => structure_d.analyze(scope),
