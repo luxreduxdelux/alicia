@@ -141,6 +141,7 @@ impl Token {
                                 && (peek == '='
                                     || peek == '<'
                                     || peek == '>'
+                                    || peek == '-'
                                     || peek == '?'
                                     || peek == ':')
                             {
@@ -170,7 +171,15 @@ impl Token {
                         line_buffer.push(character);
                     }
                 }
-                _ => line_buffer.push(character),
+                x => {
+                    if inside_escape {
+                        if x == 'n' {
+                            line_buffer.push('\n');
+                        }
+                    } else {
+                        line_buffer.push(character)
+                    }
+                }
             }
 
             inside_escape = false;
@@ -215,7 +224,6 @@ pub enum TokenClass {
     Structure,
     Enumerate,
     Let,
-    Use,
     SelfLower,
     SelfUpper,
     Loop,
@@ -228,6 +236,8 @@ pub enum TokenClass {
     Not,
     And,
     Or,
+    Import,
+    Export,
     ParenthesisBegin,
     ParenthesisClose,
     SquareBegin,
@@ -298,7 +308,6 @@ impl TokenClass {
             "structure" => Self::Structure,
             "enumerate" => Self::Enumerate,
             "let"       => Self::Let,
-            "use"       => Self::Use,
             "self"      => Self::SelfLower,
             "Self"      => Self::SelfUpper,
             "loop"      => Self::Loop,
@@ -311,6 +320,8 @@ impl TokenClass {
             "not"       => Self::Not,
             "and"       => Self::And,
             "or"        => Self::Or,
+            "import"    => Self::Import,
+            "export"    => Self::Export,
             "("         => Self::ParenthesisBegin,
             ")"         => Self::ParenthesisClose,
             "["         => Self::SquareBegin,
@@ -328,8 +339,8 @@ impl TokenClass {
             "|?"        => Self::PipeQuestion,
             "^"         => Self::Exponent,
             "~"         => Self::Tilde,
-            "<<"        => Self::ShiftL,
-            ">>"        => Self::ShiftR,
+            "<-"        => Self::ShiftL,
+            "->"        => Self::ShiftR,
             ":="        => Self::DefinitionVariable,
             "::"        => Self::DefinitionConstant,
             "+="        => Self::DefinitionAdd,
@@ -397,7 +408,6 @@ impl TokenClass {
             Self::Structure             => TokenKind::Structure,
             Self::Enumerate             => TokenKind::Enumerate,
             Self::Let                   => TokenKind::Let,
-            Self::Use                   => TokenKind::Use,
             Self::SelfLower             => TokenKind::SelfLower,
             Self::SelfUpper             => TokenKind::SelfUpper,
             Self::Loop                  => TokenKind::Loop,
@@ -410,6 +420,8 @@ impl TokenClass {
             Self::Not                   => TokenKind::Not,
             Self::And                   => TokenKind::And,
             Self::Or                    => TokenKind::Or,
+            Self::Import                => TokenKind::Import,
+            Self::Export                => TokenKind::Export,
             Self::ParenthesisBegin      => TokenKind::ParenthesisBegin,
             Self::ParenthesisClose      => TokenKind::ParenthesisClose,
             Self::SquareBegin           => TokenKind::SquareBegin,
@@ -465,7 +477,6 @@ pub enum TokenKind {
     Structure,
     Enumerate,
     Let,
-    Use,
     SelfLower,
     SelfUpper,
     Loop,
@@ -478,6 +489,8 @@ pub enum TokenKind {
     Not,
     And,
     Or,
+    Import,
+    Export,
     ParenthesisBegin,
     ParenthesisClose,
     SquareBegin,
@@ -533,7 +546,6 @@ impl Display for TokenKind {
             Self::Structure             => formatter.write_str("structure"),
             Self::Enumerate             => formatter.write_str("enumerate"),
             Self::Let                   => formatter.write_str("let"),
-            Self::Use                   => formatter.write_str("use"),
             Self::SelfLower             => formatter.write_str("self"),
             Self::SelfUpper             => formatter.write_str("Self"),
             Self::Loop                  => formatter.write_str("loop"),
@@ -546,6 +558,8 @@ impl Display for TokenKind {
             Self::Not                   => formatter.write_str("not"),
             Self::And                   => formatter.write_str("and"),
             Self::Or                    => formatter.write_str("or"),
+            Self::Import                => formatter.write_str("import"),
+            Self::Export                => formatter.write_str("export"),
             Self::ParenthesisBegin      => formatter.write_str("("),
             Self::ParenthesisClose      => formatter.write_str(")"),
             Self::SquareBegin           => formatter.write_str("["),

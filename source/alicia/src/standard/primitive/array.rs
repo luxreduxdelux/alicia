@@ -3,6 +3,7 @@ use crate::machine::Machine;
 use crate::machine::Value;
 use crate::machine::ValueType;
 use crate::scope::FunctionMeta;
+use crate::scope::FunctionNative;
 use crate::scope::NativeArgument;
 use crate::scope::Scope;
 use alicia_macro::function;
@@ -12,8 +13,6 @@ use alicia_macro::function;
 fn push(_: &mut Machine, mut argument: Argument) -> Option<Value> {
     let array = argument.next().unwrap();
     let value = argument.next().unwrap();
-
-    println!("enter push: {array:?} : {value:?}");
 
     if let Value::Reference(array) = array
         && let Value::Array(array) = &mut *array.borrow_mut()
@@ -36,4 +35,17 @@ fn length(_: &mut Machine, mut argument: Argument) -> Option<Value> {
     None
 }
 
-pub fn module(scope: &mut Scope) {}
+pub fn module(scope: &mut Scope) {
+    scope.add_function_array(FunctionNative::new(
+        "push".to_string(),
+        self::push,
+        NativeArgument::Variable,
+        ValueType::Null,
+    ));
+    scope.add_function_array(FunctionNative::new(
+        "length".to_string(),
+        self::length,
+        NativeArgument::Constant(&[]),
+        ValueType::Integer,
+    ));
+}

@@ -120,8 +120,17 @@ impl<K: Eq + Hash, V> OrderMap<K, V> {
         self.array.get(index)
     }
 
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.order.contains_key(key)
+    }
+
     pub fn len(&self) -> usize {
         self.array.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.array.clear();
+        self.order.clear();
     }
 
     pub fn iterate(&self) -> Vec<(&K, &V)> {

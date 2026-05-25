@@ -2,6 +2,7 @@ use crate::buffer::*;
 use crate::construct::definition::Definition;
 use crate::construct::enumerate::Enumerate;
 use crate::construct::function::Function;
+use crate::construct::import::Import;
 use crate::construct::structure::Structure;
 use crate::error::*;
 use crate::helper::*;
@@ -21,12 +22,12 @@ use std::rc::Rc;
 //================================================================
 
 #[derive(Debug, Copy, Clone, Default)]
-struct Index {
-    variable: usize,
-    function: usize,
-    structure: usize,
-    enumerate: usize,
-    function_native: usize,
+pub struct Index {
+    pub variable: usize,
+    pub function: usize,
+    pub structure: usize,
+    pub enumerate: usize,
+    pub function_native: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,12 +41,18 @@ pub struct Method {
 pub type ScopePointer = Rc<RefCell<Scope>>;
 
 #[derive(Debug, Clone)]
+pub struct Module {
+    pub symbol: OrderMap<String, Declaration>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Scope {
     pub source: Vec<Source>,
+    pub module: OrderMap<String, Module>,
     pub symbol: OrderMap<String, Declaration>,
     pub parent: Option<ScopePointer>,
     pub method: Method,
-    index: Index,
+    pub index: Index,
 }
 
 impl Scope {
@@ -70,6 +77,7 @@ impl Scope {
 
         Self {
             source,
+            module: OrderMap::default(),
             symbol: OrderMap::default(),
             parent,
             method,
@@ -81,7 +89,19 @@ impl Scope {
         self.source.last().unwrap().clone()
     }
 
-    pub fn parse_buffer(&mut self, mut token_buffer: TokenBuffer) -> Result<(), Error> {
+    pub fn parse_module(&mut self, mut token_buffer: TokenBuffer, name: &str) -> Result<(), Error> {
+        if self.module.contains_key(&name.to_string()) {
+            println!("module already in memory");
+            return Ok(());
+        }
+
+        //self.module.insert(
+        //    name.to_string(),
+        //    Module {
+        //        symbol: self.symbol.clone(),
+        //    },
+        //);
+
         self.source.push(token_buffer.source.clone());
 
         while let Some(token) = token_buffer.peek() {
@@ -105,10 +125,11 @@ impl Scope {
                         Declaration::Definition(definition),
                     );
                 }
-                //TokenClass::Use => {
-                //    let value = Use::parse_token(&mut token_buffer)?;
-                //    println!("use: {value:?}");
-                //}
+                TokenClass::Import => {
+                    let definition = Import::parse_token(&mut token_buffer)?;
+                    let source = Source::new_file(&format!("src/{}.alicia", definition.path.text))?;
+                    self.parse_module(TokenBuffer::new(source)?, &definition.path.text)?;
+                }
                 _ => {
                     return Error::new_info(
                         token_buffer.get_error_info(Some(token.clone())),
@@ -118,6 +139,15 @@ impl Scope {
                 }
             };
         }
+
+        //self.module.insert(
+        //    name.to_string(),
+        //    Module {
+        //        symbol: self.symbol.clone(),
+        //    },
+        //);
+
+        //self.symbol.clear();
 
         Ok(())
     }
@@ -159,6 +189,13 @@ impl Scope {
             call: Self::print_native,
             enter: NativeArgument::Variable,
             leave: ValueType::Null,
+            index: 0,
+        });
+        self.add_function(FunctionNative {
+            name: "format".to_string(),
+            call: Self::format_native,
+            enter: NativeArgument::Variable,
+            leave: ValueType::String,
             index: 0,
         });
 
@@ -288,6 +325,10 @@ impl Scope {
         None
     }
 
+    fn format_native(machine: &mut Machine, argument: Argument) -> Option<Value> {
+        Some(Self::format_internal(argument).unwrap().into())
+    }
+
     pub fn print(&self) {
         println!("scope: {:#?}", self.symbol);
 
@@ -305,6 +346,10 @@ impl Scope {
         } else {
             None
         }
+    }
+
+    pub fn get_function_string(&self, name: Identifier) -> Option<FunctionNative> {
+        self.method.string.get(&name.text).cloned()
     }
 
     pub fn get_function_integer(&self, name: Identifier) -> Option<FunctionNative> {

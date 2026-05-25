@@ -1,231 +1,450 @@
-structure Vector {
-    x: Decimal,
-    y: Decimal,
+structure GameState {
+    size_x: Integer,
+    size_y: Integer,
+    mine_count: Integer,
+    finish: Boolean,
+    board: Array< Array<Integer> >,
+    board_visible: Array< Array<Cell> >,
 }
 
-function vector_new(x: Decimal, y: Decimal) : Vector {
-    return Vector {
-        x := x,
-        y := y,
-    };
+enumerate Cell {
+    Hidden,
+    Open,
+    Flag,
+    Bomb,
 }
 
-#================================================================
-
-structure Player {
-    point: Vector,
-    angle: Vector,
-}
-
-function player_new() : Player {
-    return Player {
-        point := vector_new(1.0, 1.0),
-        angle := vector_new(0.0, 4.0),
-    };
-}
-
-#================================================================
-
-structure Tile {
-    point: Vector,
-    where: Vector,
-    style: Integer,
-}
-
-function tile_new(point: Vector, where: Vector, style: Integer) : Tile {
-    return Tile {
-        point := point,
-        where := where,
-        style := style,
-    };
-}
-
-#================================================================
-
-structure Level {
-    data: Array<Tile>,
-    size: Integer,
-}
-
-function level_new() : Level {
-    let brick := vector_new(6.0, 7.0);
-    let grass := vector_new(10.0, 6.0);
-    let stone := vector_new(11.0, 6.0);
-    let dot   := vector_new(11.0, 2.0);
-    let box   := vector_new(6.0, 0.0);
-
-    return Level {
-        data := [
-            tile_new(vector_new(0.0, 0.0), brick, 0),
-            tile_new(vector_new(1.0, 0.0), brick, 0),
-            tile_new(vector_new(2.0, 0.0), brick, 0),
-            tile_new(vector_new(3.0, 0.0), brick, 0),
-            tile_new(vector_new(4.0, 0.0), brick, 0),
-            tile_new(vector_new(5.0, 0.0), grass, 1),
-            tile_new(vector_new(6.0, 0.0), grass, 1),
-
-            tile_new(vector_new(0.0, 1.0), brick, 0),
-            tile_new(vector_new(1.0, 1.0), stone, 1),
-            tile_new(vector_new(2.0, 1.0), stone, 1),
-            tile_new(vector_new(3.0, 1.0), stone, 1),
-            tile_new(vector_new(4.0, 1.0), brick, 0),
-            tile_new(vector_new(5.0, 1.0), grass, 1),
-            tile_new(vector_new(6.0, 1.0), grass, 1),
-
-            tile_new(vector_new(0.0, 2.0), brick, 0),
-            tile_new(vector_new(1.0, 2.0), stone, 1),
-            tile_new(vector_new(2.0, 2.0), brick, 0),
-            tile_new(vector_new(3.0, 2.0), box,   2),
-            tile_new(vector_new(4.0, 2.0), brick, 0),
-            tile_new(vector_new(5.0, 2.0), brick, 0),
-            tile_new(vector_new(6.0, 2.0), brick, 0),
-
-            tile_new(vector_new(0.0, 3.0), brick, 0),
-            tile_new(vector_new(1.0, 3.0), stone, 1),
-            tile_new(vector_new(2.0, 3.0), box,   2),
-            tile_new(vector_new(3.0, 3.0), stone, 1),
-            tile_new(vector_new(4.0, 3.0), dot,   3),
-            tile_new(vector_new(5.0, 3.0), dot,   3),
-            tile_new(vector_new(6.0, 3.0), brick, 0),
-
-            tile_new(vector_new(0.0, 4.0), brick, 0),
-            tile_new(vector_new(1.0, 4.0), brick, 0),
-            tile_new(vector_new(2.0, 4.0), brick, 0),
-            tile_new(vector_new(3.0, 4.0), brick, 0),
-            tile_new(vector_new(4.0, 4.0), brick, 0),
-            tile_new(vector_new(5.0, 4.0), brick, 0),
-            tile_new(vector_new(6.0, 4.0), brick, 0),
-        ],
-        size := 7 * 5,
-    };
-}
-
-#================================================================
-
-function draw_player(point: Vector, angle: Vector) {
-    draw_texture((point.x) * 128.0, (point.y) * 128.0, angle.x, angle.y, 255, 255, 255, 255);
-}
-
-function main() : Boolean {
-    let level  := level_new();
-    let player := player_new();
-
-    loop (window_should_close()) {
-        draw_begin();
-
-            #================================================================
-            # level logic
-            #================================================================
-
-            let l_i := 0;
-            let l_d := level.data;
-            let l_s := level.size;
-
-            # draw every tile, except the box tile (draw ordering)
-            loop (l_i < l_s) {
-                let l_current := l_d[l_i];
-
-                print("{}", l_current);
-
-                if (l_current.style != 2) {
-                    draw_texture((l_current.point.x) * 128.0, (l_current.point.y) * 128.0, l_current.where.x, l_current.where.y, 255, 255, 255, 255);
-                }
-
-                l_i := l_i + 1;
-            }
-
-            l_i := 0;
-
-            # draw every box
-            loop (l_i < l_s) {
-                let l_current := l_d[l_i];
-
-                if (l_current.style = 2) {
-                    draw_texture((l_current.point.x) * 128.0, (l_current.point.y) * 128.0, l_current.where.x, l_current.where.y, 255, 255, 255, 255);
-                }
-
-                l_i := l_i + 1;
-            }
-
-            #================================================================
-            # player logic
-            #================================================================
-
-            let movement_x := 0.0;
-            let movement_y := 0.0;
-
-            # A/D
-            if (is_key_press(65)) { movement_x := -1.0; player.angle := vector_new(3.0, 6.0); }
-            if (is_key_press(68)) { movement_x :=  1.0; player.angle := vector_new(0.0, 6.0); }
-
-            # W/S
-            if (is_key_press(87)) { movement_y := -1.0; player.angle := vector_new(3.0, 4.0); }
-            if (is_key_press(83)) { movement_y :=  1.0; player.angle := vector_new(0.0, 4.0); }
-
-            # run movement logic
-            if ((movement_x != 0.0) or (movement_y != 0.0)) {
-                # ideal player position
-                let wish_move := vector_new(
-                    player.point.x + movement_x,
-                    player.point.y + movement_y
-                );
-
-                # index into the level data array
-                let index := (wish_move.y) * 7.0 + (wish_move.x);
-                let which := l_d[to_integer(index)];
-                let style := which.style;
-
-                # walking into box
-                if (style = 2) {
-                    let wish_move_new := vector_new(
-                        player.point.x + movement_x * 2.0,
-                        player.point.y + movement_y * 2.0
-                    );
-
-                    let index_move := (wish_move_new.y) * 7.0 + (wish_move_new.x);
-                    let which_move := l_d[to_integer(index_move)];
-                    let style_move := which_move.style;
-
-                    # if the new object isn't a brick wall or another box
-                    if ((style_move != 0) and (style_move != 2)) {
-                        # move the box
-                        l_d[to_integer(index_move)] := tile_new(
-                            wish_move_new,
-                            which.where,
-                            which.style,
-                        );
-
-                        # load a default stone tile into the old tile (wrong, but whatever)
-                        l_d[to_integer(index)] := tile_new(
-                            wish_move,
-                            vector_new(11.0, 6.0),
-                            1,
-                        );
-
-                        # move player
-                        player.point.x := player.point.x + movement_x;
-                        player.point.y := player.point.y + movement_y;
-                    }
-                } else {
-                    # if we're not walking into a brick wall
-                    if (style != 0) {
-                        # move player
-                        player.point.x := player.point.x + movement_x;
-                        player.point.y := player.point.y + movement_y;
-                    }
-                }
-            }
-
-            # draw player
-            draw_player(player.point, player.angle);
-
-        draw_close();
-
-        # restart Alicia on Q key press
-        if (is_key_press(81)) { return true; }
-        # compile Alicia on E key press
-        if (is_key_press(69)) { compile(); }
+function cell_save(cell: Cell): String {
+    switch (cell) {
+        Cell:Hidden() {
+            return "0";
+        },
+        Cell:Open() {
+            return "1";
+        },
+        Cell:Flag() {
+            return "2";
+        },
     }
 
-    return false;
+    return "3";
 }
+
+function cell_load(text: String): Cell {
+    if (text = "0") {
+        return Cell:Hidden;
+    } else (text = "1") {
+        return Cell:Open;
+    } else (text = "2") {
+        return Cell:Flag;
+    }
+
+    return Cell:Bomb;
+}
+
+#================================================================
+
+function generate_matrix(size_x: Integer, size_y: Integer): Array< Array<Integer> > {
+    let matrix: Array< Array<Integer> > := [];
+
+    let s_x := size_x;
+
+    loop (s_x > 0) {
+        let row: Array<Integer> := [];
+
+        let s_y := size_y;
+
+        loop (s_y > 0) {
+            row.push(0);
+            s_y -= 1;
+        }
+
+        matrix.push(row);
+        s_x -= 1;
+    }
+
+    return matrix;
+}
+
+function generate_matrix_cell(size_x: Integer, size_y: Integer): Array< Array<Cell> > {
+    let matrix: Array< Array<Cell> > := [];
+
+    let s_x := size_x;
+
+    loop (s_x > 0) {
+        let row: Array<Cell> := [];
+
+        let s_y := size_y;
+
+        loop (s_y > 0) {
+            row.push(Cell:Hidden);
+            s_y -= 1;
+        }
+
+        matrix.push(row);
+        s_x -= 1;
+    }
+
+    return matrix;
+}
+
+# 1)
+function mine_spawn(size_x: Integer, size_y: Integer, mine_count: Integer, index: Integer) : Array< Array<Integer> > {
+    let b_m: Array< Array<Integer> > := generate_matrix(size_x, size_y);
+
+    loop (mine_count > 0) {
+        let r_x := (0).random(size_x - 1);
+        let r_y := (0).random(size_y - 1);
+        let b_x := b_m[r_x];
+        let b_y := b_x[r_y];
+
+        if (b_y != index) {
+            b_x[r_y] := index;
+
+            mine_count -= 1;
+        }
+    }
+
+    return b_m;
+}
+
+function calculate_cell_single(board: Array< Array<Integer> >, cell_x: Integer, cell_y: Integer, size_x: Integer, size_y: Integer): Integer {
+    let i_x := cell_x - 1;
+    let count := 0;
+
+    loop (i_x < (cell_x + 2)) {
+        let i_y := cell_y - 1;
+
+        loop (i_y < (cell_y + 2)) {
+            let bind_x := (i_x >= 0) and (i_x < size_x);
+            let bind_y := (i_y >= 0) and (i_y < size_y);
+
+            if (bind_x and bind_y) {
+                let b_i_x := board[i_x];
+                let b_i_y := b_i_x[i_y];
+
+                if (b_i_y = -1) {
+                    count += 1;
+                }
+            }
+
+            i_y += 1;
+        }
+
+        i_x += 1;
+    }
+
+    return count;
+}
+
+# 2)
+function calculate_cell(board: Array< Array<Integer> >, size_x: Integer, size_y: Integer): Array< Array<Integer> > {
+    let s_x := 0;
+
+    loop (s_x < size_x) {
+        let s_y := 0;
+        let b_x := board[s_x];
+
+        loop (s_y < size_y) {
+            if (b_x[s_y] != -1) {
+                b_x[s_y] := calculate_cell_single(board, s_x, s_y, size_x, size_y);
+            }
+
+            s_y += 1;
+        }
+
+        s_x += 1;
+    }
+
+    return board;
+}
+
+# 3)
+function create_game_state(size_x: Integer, size_y: Integer, mine_count: Integer): GameState {
+    let b_i: Array< Array<Integer> > := calculate_cell(mine_spawn(size_x, size_y, mine_count, -1), size_x, size_y);
+    let b_v: Array< Array<Cell> > := generate_matrix_cell(size_x, size_y);
+
+    let state := GameState {
+        size_x := size_x,
+        size_y := size_y,
+        mine_count := mine_count,
+        finish := false,
+        board  := b_i,
+        board_visible := b_v,
+    };
+
+    return state;
+}
+
+# 5)
+function mark_cell(state: GameState, cell_x: Integer, cell_y: Integer) : GameState {
+    let b_v := state.board_visible;
+    let b_x := b_v[cell_x];
+    let b_y := b_x[cell_y];
+
+    # alternate between cell-flag and cell-empty
+
+    switch (b_v) {
+        Cell:Hidden() {
+            # TO-DO this should not modify the original state whatsover, as it is cloning it, not referencing it...
+            b_x[cell_y] := Cell:Flag;
+        },
+        Cell:Flag() {
+            b_x[cell_y] := Cell:Hidden;
+        }
+    }
+
+    return state;
+}
+
+# 7)
+function check_finish_state(state: GameState) : Boolean {
+    let b_i := state.board;
+    let b_v := state.board_visible;
+    let s_x := 0;
+
+    loop (s_x < state.size_x) {
+        let s_y := 0;
+        let b_x_i := b_i[s_x];
+        let b_x_v := b_v[s_x];
+
+        loop (s_y < state.size_y) {
+            # if the current (visible) cell is not open, and it is not a bomb, return false
+            if ((b_x_v[s_y] != Cell:Open) and (b_x_i[s_y] != -1)) {
+                return false;
+            }
+
+            s_y += 1;
+        }
+
+        s_x += 1;
+    }
+
+    return true;
+}
+
+function invisible_to_visible_board(board: Array< Array<Integer> >, size_x: Integer, size_y: Integer): Array< Array<Cell> > {
+    let result: Array< Array<Cell> > := [];
+    let s_x := 0;
+
+    loop (s_x < size_x) {
+        let row: Array<Cell> := [];
+        let s_y := 0;
+        let b_x := board[s_x];
+
+        loop (s_y < size_y) {
+            let b_y := b_x[s_y];
+
+            if (b_y = -1) {
+                row.push(Cell:Bomb);
+            } else {
+                row.push(Cell:Open);
+            }
+
+            s_y += 1;
+        }
+
+        result.push(row);
+
+        s_x += 1;
+    }
+
+    return result;
+}
+
+# 6)
+function open_cell(state: GameState, cell_x: Integer, cell_y: Integer): GameState {
+    let b_v := state.board;
+    let b_x := b_v[cell_x];
+    let b_y := b_x[cell_y];
+
+    if (b_y = -1) {
+        # if cell is a mine, end game
+        state.board_visible := invisible_to_visible_board(state.board, state.size_x, state.size_y);
+        state.finish := true;
+    } else {
+        # otherwise, recurse and open every adjacent cell
+        open_cell_recurse(state, cell_x, cell_y);
+
+        if (check_finish_state(state)) {
+            state.board_visible := invisible_to_visible_board(state.board, state.size_x, state.size_y);
+            state.finish := true;
+        }
+    }
+
+    return state;
+}
+
+function open_cell_recurse(state: GameState, cell_x: Integer, cell_y: Integer): GameState {
+    let b_i := state.board;
+    let b_v := state.board_visible;
+    let i_x := cell_x - 1;
+
+    # iterate from top left cell
+    loop (i_x < (cell_x + 2)) {
+        let i_y := cell_y - 1;
+
+        loop (i_y < (cell_y + 2)) {
+            let bind_x := (i_x >= 0) and (i_x < state.size_x);
+            let bind_y := (i_y >= 0) and (i_y < state.size_y);
+
+            # if we are on a valid cell index...
+            if (bind_x and bind_y) {
+                let b_i_x := b_i[i_x];
+                let b_i_y := b_i_x[i_y];
+
+                # if the current cell is not a mine...
+                if (b_i_y != -1) {
+                    # open cell
+                    let b_x := b_v[i_x];
+                    let b_y := b_x[i_y];
+                    b_x[i_y] := Cell:Open;
+                }
+            }
+
+            i_y += 1;
+        }
+
+        i_x += 1;
+    }
+
+    return state;
+}
+
+# 10)
+function save_game(state: GameState, path: String) {
+    print("save game, path: {}", path);
+
+    let data := format("{}\n{}\n{}\n", state.size_x, state.size_y, state.mine_count);
+
+    #================================================================
+    # save board
+    #================================================================
+
+    let s_y := 0;
+    let board := state.board;
+
+    loop (s_y < state.size_x) {
+        let s_x := 0;
+        let b_y := board[s_y];
+
+        loop (s_x < state.size_x) {
+            data := format("{}{} ", data, b_y[s_x]);
+
+            s_x += 1;
+        }
+
+        data := format("{}\n", data);
+
+        s_y += 1;
+    }
+
+    data := format("{}\n", data);
+
+    #================================================================
+    # save board (visible)
+    #================================================================
+
+    let s_y := 0;
+    let board := state.board_visible;
+
+    loop (s_y < state.size_x) {
+        let s_x := 0;
+        let b_y := board[s_y];
+
+        loop (s_x < state.size_x) {
+            data := format("{}{} ", data, cell_save(b_y[s_x]));
+
+            s_x += 1;
+        }
+
+        data := format("{}\n", data);
+
+        s_y += 1;
+    }
+
+    file_new(path, data);
+}
+
+# 11)
+function load_game(path: String) : GameState {
+    print("load game, path: {}", path);
+
+    let data       := file_read(path);
+    let line       := data.split("\n");
+
+    let s_x := line[0];
+    let s_y := line[1];
+    let m_c := line[2];
+    let size_x := s_x.to_integer();
+    let size_y := s_y.to_integer();
+    let mine_count := m_c.to_integer();
+
+    let line_count := line.length();
+    let line_index := 3;
+
+    let push_visible := false;
+    let board:         Array< Array<Integer> > := [];
+    let board_visible: Array< Array<Cell> >    := [];
+
+    loop (line_index < line_count) {
+        let row_i: Array<Integer> := [];
+        let row_v: Array<Cell>    := [];
+        let line_current := line[line_index];
+
+        if (line_current != "") {
+            let split        := line_current.split(" ");
+            let split_count  := split.length();
+            let split_index  := 0;
+
+            loop (split_index < split_count) {
+                let split_current := split[split_index];
+
+                if ((split_current.length()) > 0) {
+                    if (push_visible) {
+                        row_v.push(cell_load(split_current));
+                    } else {
+                        row_i.push(split_current.to_integer());
+                    }
+                }
+
+                split_index += 1;
+            }
+
+            if (push_visible) {
+                board_visible.push(row_v);
+            } else {
+                board.push(row_i);
+            }
+        } else {
+            push_visible := true;
+        }
+
+        line_index += 1;
+    }
+
+    let state := GameState {
+        size_x := size_x,
+        size_y := size_y,
+        mine_count := mine_count,
+        finish := false,
+        board  := board,
+        board_visible := board_visible,
+    };
+
+    return state;
+}
+
+##
+# 4)
+function obtain_visible_board_state(state: GameState): Array<Array<Cell>> {
+}
+
+# 8)
+function discover_path(board: Array<Array<Integer>>, board_visible: Array<Array<Cell>>, x: Integer, y: Integer) Array<Array<Tuple<Integer, Integer>>> {
+}
+
+# 9)
+function restart_game(state: &GameState) {
+}
+##

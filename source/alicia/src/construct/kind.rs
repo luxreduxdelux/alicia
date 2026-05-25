@@ -21,8 +21,8 @@ pub struct Kind {
 impl Kind {
     pub fn parse_token(token_buffer: &mut TokenBuffer) -> Result<Self, Error> {
         token_buffer.parse(ErrorHint::Kind, |token_buffer| {
-            let reference = if token_buffer.want_peek(TokenKind::Ampersand) {
-                token_buffer.want(TokenKind::Ampersand)?;
+            let reference = if token_buffer.want_peek(TokenKind::At) {
+                token_buffer.want(TokenKind::At)?;
                 true
             } else {
                 false
@@ -51,7 +51,7 @@ impl Kind {
     }
 
     pub fn type_check(&self, scope: &Scope) -> Result<ExpressionKind, Error> {
-        Ok(match self.name.text.as_str() {
+        let kind = match self.name.text.as_str() {
             "String" => ExpressionKind::String,
             "Integer" => ExpressionKind::Integer,
             "Decimal" => ExpressionKind::Decimal,
@@ -92,6 +92,12 @@ impl Kind {
                     _ => panic!("type_check: definition is not a structure or enumeration"),
                 }
             }
-        })
+        };
+
+        if self.reference {
+            Ok(ExpressionKind::Reference(Box::new(kind)))
+        } else {
+            Ok(kind)
+        }
     }
 }

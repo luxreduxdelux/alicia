@@ -6,6 +6,7 @@ pub mod definition;
 pub mod enumerate;
 pub mod expression;
 pub mod function;
+pub mod import;
 pub mod iteration;
 pub mod kind;
 pub mod resolve;

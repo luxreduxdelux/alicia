@@ -112,7 +112,7 @@ impl Block {
                     expression.analyze(&scope_block.borrow(), None)?;
                 }
                 Statement::Condition(condition) => {
-                    condition.analyze(scope_block.clone())?;
+                    condition.analyze(scope_block.clone(), iteration)?;
                 }
                 Statement::Iteration(iteration) => {
                     iteration.analyze(scope_block.clone())?;
@@ -121,7 +121,7 @@ impl Block {
                     switch.analyze(scope_block.clone())?;
                 }
                 Statement::Block(block) => {
-                    block.analyze(scope_block.clone(), Vec::default(), false)?;
+                    block.analyze(scope_block.clone(), Vec::default(), iteration)?;
                 }
                 Statement::Skip => {
                     if !iteration {

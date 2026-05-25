@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 alicia       = { path = "../alicia" }
 alicia-macro = { path = "../alicia-macro" }
+anyhow       = { version = "1.0" }
 raylib       = { version = "5.5.1", features = [] }

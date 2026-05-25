@@ -3,6 +3,7 @@ use crate::construct::structure::Structure as StructureD;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::helper::Identifier;
+use crate::helper::OrderMap;
 use crate::helper::Point;
 use crate::prelude::ExpressionKind;
 use crate::scope::Declaration;
@@ -19,58 +20,20 @@ use std::rc::Rc;
 //================================================================
 
 #[derive(Debug, Clone)]
-struct Symbol<T> {
-    data: Vec<T>,
-    text: HashMap<String, usize>,
-}
-
-impl<T> Default for Symbol<T> {
-    fn default() -> Self {
-        Self {
-            data: Default::default(),
-            text: Default::default(),
-        }
-    }
-}
-
-impl<T> Symbol<T> {
-    fn insert(&mut self, text: String, value: T) {
-        self.data.push(value);
-        self.text.insert(text, self.data.len() - 1);
-    }
-
-    fn insert_index_only(&mut self, value: T) {
-        self.data.push(value);
-    }
-
-    fn get(&self, index: usize) -> Option<&T> {
-        self.data.get(index)
-    }
-
-    fn get_text(&self, text: &str) -> Option<&T> {
-        if let Some(index) = self.text.get(text) {
-            return self.get(*index);
-        }
-
-        None
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct Machine {
-    function: Symbol<Function>,
-    structure: Symbol<StructureD>,
-    enumerate: Symbol<EnumerateD>,
-    function_native: Symbol<FunctionNative>,
+    function: OrderMap<String, Function>,
+    structure: OrderMap<String, StructureD>,
+    enumerate: OrderMap<String, EnumerateD>,
+    function_native: OrderMap<String, FunctionNative>,
 }
 
 impl Machine {
     pub fn new(scope: &Scope) -> Result<Self, Error> {
         let mut machine = Self {
-            function: Symbol::default(),
-            function_native: Symbol::default(),
-            structure: Symbol::default(),
-            enumerate: Symbol::default(),
+            function: OrderMap::default(),
+            function_native: OrderMap::default(),
+            structure: OrderMap::default(),
+            enumerate: OrderMap::default(),
         };
 
         machine.compile(scope)?;
@@ -96,19 +59,21 @@ impl Machine {
                     self.function_native.insert(f.name.clone(), f.clone());
                 }
                 Declaration::Structure(s) => {
-                    for (_, function) in &s.function.iterate() {
+                    for (name, function) in &s.function.iterate() {
                         let compile = function.compile(scope)?;
 
-                        self.function.insert_index_only(compile);
+                        // TO-DO review: this might step over other stuff in the global scope? use module system
+                        self.function.insert(name.to_string(), compile);
                     }
 
                     self.structure.insert(s.name.text.clone(), s.clone());
                 }
                 Declaration::Enumerate(e) => {
-                    for (_, function) in &e.function.iterate() {
+                    for (name, function) in &e.function.iterate() {
                         let compile = function.compile(scope)?;
 
-                        self.function.insert_index_only(compile);
+                        // TO-DO review: this might step over other stuff in the global scope? use module system
+                        self.function.insert(name.to_string(), compile);
                     }
 
                     self.enumerate.insert(e.name.text.clone(), e.clone());
@@ -118,30 +83,33 @@ impl Machine {
         }
 
         for f in scope.method.string.array.clone() {
-            self.function_native.insert(f.name.clone(), f);
+            self.function_native
+                .insert(format!("string::{}", f.name), f);
         }
 
         for f in scope.method.integer.array.clone() {
-            self.function_native.insert(f.name.clone(), f);
+            self.function_native
+                .insert(format!("integer::{}", f.name), f);
         }
 
         for f in scope.method.decimal.array.clone() {
-            self.function_native.insert(f.name.clone(), f);
+            self.function_native
+                .insert(format!("decimal::{}", f.name), f);
         }
 
         for f in scope.method.array.array.clone() {
-            self.function_native.insert(f.name.clone(), f);
+            self.function_native.insert(format!("array::{}", f.name), f);
         }
 
         Ok(())
     }
 
     pub fn get_function(&self, name: &str) -> Option<&Function> {
-        self.function.get_text(name)
+        self.function.get(&name.to_string())
     }
 
     fn get_function_index(&self, index: usize) -> Function {
-        if let Some(value) = self.function.get(index) {
+        if let Some(value) = self.function.get_index(index) {
             value.clone()
         } else {
             panic!("Machine::get_function_index(): No function by the index of \"{index}\".")
@@ -149,7 +117,7 @@ impl Machine {
     }
 
     fn get_function_native_index(&self, index: usize) -> FunctionNative {
-        if let Some(value) = self.function_native.get(index) {
+        if let Some(value) = self.function_native.get_index(index) {
             value.clone()
         } else {
             panic!("Machine::get_function_native_index(): No function by the index of \"{index}\".")
@@ -404,9 +372,107 @@ impl PartialEq for Value {
     }
 }
 
+impl TryFrom<&Value> for i64 {
+    type Error = ();
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        if let Value::Integer(i) = value {
+            Ok(*i)
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl TryFrom<Value> for i64 {
+    type Error = ();
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Integer(i) = value {
+            Ok(i)
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl TryFrom<&Value> for bool {
+    type Error = ();
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        if let Value::Boolean(i) = value {
+            Ok(*i)
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl TryFrom<Value> for bool {
+    type Error = ();
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Boolean(i) = value {
+            Ok(i)
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl<T: TryFrom<Value, Error = ()>> TryFrom<Value> for Vec<T> {
+    type Error = ();
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Array(a) = value {
+            if a.data.is_empty() {
+                Ok(Vec::default())
+            } else {
+                let mut result = Vec::default();
+
+                for value in a.data {
+                    result.push(value.borrow().clone().try_into()?)
+                }
+
+                Ok(result)
+            }
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl<T: TryFrom<Value, Error = ()>> TryFrom<&Value> for Vec<T> {
+    type Error = ();
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        if let Value::Array(a) = value {
+            if a.data.is_empty() {
+                Ok(Vec::default())
+            } else {
+                let mut result = Vec::default();
+
+                for value in &a.data {
+                    result.push(value.borrow().clone().try_into()?)
+                }
+
+                Ok(result)
+            }
+        } else {
+            Err(())
+        }
+    }
+}
+
 impl From<String> for Value {
     fn from(value: String) -> Self {
         Self::String(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
     }
 }
 
@@ -443,6 +509,18 @@ impl From<f64> for Value {
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Self::Boolean(value)
+    }
+}
+
+impl<T: Into<Value>> From<Vec<T>> for Value {
+    fn from(value: Vec<T>) -> Self {
+        let mut array = Array::new();
+
+        for i in value {
+            array.push(i.into());
+        }
+
+        Self::Array(array)
     }
 }
 
@@ -558,9 +636,9 @@ impl Display for Value {
             Value::Structure(value) => {
                 formatter.write_str(&value.kind)?;
 
-                formatter.write_str(" { ")?;
-
                 let length = value.data.len();
+
+                formatter.write_str(" { ")?;
 
                 for (i, v) in value.data.iter().enumerate() {
                     let v = v.borrow();
@@ -588,32 +666,36 @@ impl Display for Value {
             },
             Value::Enumerate(value) => {
                 formatter.write_str(&value.name)?;
-                formatter.write_str(" : ")?;
+                formatter.write_str(":")?;
                 formatter.write_str(&value.kind)?;
-
-                formatter.write_str(" { ")?;
 
                 let length = value.data.len();
 
-                for (i, v) in value.data.iter().enumerate() {
-                    let v = v.borrow();
+                if length > 0 {
+                    formatter.write_str(" { ")?;
 
-                    if i == length - 1 {
-                        formatter.write_str(&format!("{v} "))?;
-                    } else {
-                        formatter.write_str(&format!("{v}, "))?;
+                    for (i, v) in value.data.iter().enumerate() {
+                        let v = v.borrow();
+
+                        if i == length - 1 {
+                            formatter.write_str(&format!("{v} "))?;
+                        } else {
+                            formatter.write_str(&format!("{v}, "))?;
+                        }
                     }
+
+                    formatter.write_str("}")?;
                 }
 
-                formatter.write_str("}")
+                Ok(())
             },
             Value::Reference(value) => {
                 formatter.write_str(&format!("{}", value.borrow()))
             }
             Value::Array(value) => {
-                formatter.write_str("[")?;
-
                 let length = value.data.len();
+
+                formatter.write_str("[")?;
 
                 for (i, v) in value.data.iter().enumerate() {
                     let v = v.borrow();
@@ -628,27 +710,27 @@ impl Display for Value {
                 formatter.write_str("]")
             },
             Value::Table(value) => {
-                formatter.write_str("{")?;
-
                 let length = value.data.len();
+
+                formatter.write_str("{")?;
 
                 for (i, v) in value.data.iter().enumerate() {
                     let a = v.0.borrow();
                     let b = v.1.borrow();
 
                     if i == length - 1 {
-                        formatter.write_str(&format!("{a} : {b}"))?;
+                        formatter.write_str(&format!("{a}: {b}"))?;
                     } else {
-                        formatter.write_str(&format!("{a} : {b}, "))?;
+                        formatter.write_str(&format!("{a}: {b}, "))?;
                     }
                 }
 
                 formatter.write_str("}")
             },
             Value::Tuple(value) => {
-                formatter.write_str("(")?;
-
                 let length = value.data.len();
+
+                formatter.write_str("(")?;
 
                 for (i, v) in value.data.iter().enumerate() {
                     let v = v.borrow();
@@ -1045,7 +1127,7 @@ impl Function {
                     frame.push(Value::Reference(value));
                 }
                 Instruction::PushStructure(index) => {
-                    let index = machine.structure.get(index).unwrap();
+                    let index = machine.structure.get_index(index).unwrap();
                     let mut s = Structure::new(index.name.text.clone());
 
                     // TO-DO respect actual ordering
@@ -1058,11 +1140,13 @@ impl Function {
                     frame.push(Value::Structure(s));
                 }
                 Instruction::PushEnumerate(index, index_kind) => {
-                    let enumerate = machine.enumerate.get(index).unwrap();
+                    let enumerate = machine.enumerate.get_index(index).unwrap();
+                    let name = enumerate.variable.iterate();
                     let kind = enumerate.variable.get_index(index_kind).unwrap();
                     let mut e = Enumerate::new(
                         enumerate.name.text.clone(),
-                        "TO-DO".to_string(),
+                        // TO-DO this is awful
+                        name[index_kind].0.clone(),
                         index,
                         index_kind,
                     );
@@ -1374,6 +1458,10 @@ impl Function {
                             let b = frame.pop_boolean();
                             frame.push(Value::Boolean(b != a));
                         }
+                        Value::Enumerate(a) => {
+                            let b = frame.pop_enumerate();
+                            frame.push(Value::Boolean(b != a));
+                        }
                         _ => todo!(),
                     }
                 }
@@ -1391,21 +1479,20 @@ impl Function {
                 Instruction::Return(pop) => {
                     if pop {
                         let v = frame.pop();
+                        value = Some(v.clone());
 
                         if !stack.is_empty() {
                             frame = stack.pop().unwrap();
+                            frame.push(v);
+                            continue;
                         }
-
-                        frame.push(v);
-
-                        continue;
 
                         //return Some(value);
                     } else {
                         if !stack.is_empty() {
                             frame = stack.pop().unwrap();
+                            continue;
                         }
-                        continue;
 
                         //return None;
                     }

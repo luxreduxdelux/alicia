@@ -8,6 +8,7 @@ use crate::scope::NativeArgument;
 use crate::scope::Scope;
 use alicia_macro::function;
 use alicia_macro::function_integer_add;
+use rand::RngExt;
 
 //================================================================
 
@@ -52,6 +53,12 @@ fn square_root(value: i64) -> Integer {
     Some(Value::Integer(value.isqrt()))
 }
 
+#[function]
+fn random(lower: i64, upper: i64) -> Integer {
+    // TO-DO throw error is lower > upper
+    Some(Value::Integer(rand::rng().random_range(upper..=lower)))
+}
+
 pub fn module(scope: &mut Scope) {
     function_integer_add!(scope, to_string);
     function_integer_add!(scope, to_decimal);
@@ -61,4 +68,5 @@ pub fn module(scope: &mut Scope) {
     function_integer_add!(scope, min);
     function_integer_add!(scope, max);
     function_integer_add!(scope, square_root);
+    function_integer_add!(scope, random);
 }

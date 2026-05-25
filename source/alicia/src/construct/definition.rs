@@ -84,7 +84,14 @@ impl Definition {
         }
 
         self.kind_e = Some(source.clone());
-        self.index = Some(scope.add_index_variable());
+
+        if let Some(declaration) = scope.get_declaration(self.name.clone())
+            && let Declaration::Definition(definition) = declaration
+        {
+            self.index = definition.index;
+        } else {
+            self.index = Some(scope.add_index_variable());
+        }
 
         scope.set_declaration(self.name.clone(), Declaration::Definition(self.clone()));
 

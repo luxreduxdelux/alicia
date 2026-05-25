@@ -41,7 +41,7 @@ impl Builder {
         //================================================================
 
         let mut scope = Scope::new(None);
-        scope.parse_buffer(TokenBuffer::new(source)?)?;
+        scope.parse_module(TokenBuffer::new(source.clone())?, &source.path)?;
 
         for function in self.function {
             scope.add_function(function);
@@ -66,7 +66,7 @@ impl Builder {
         //================================================================
 
         let mut scope = Scope::new(None);
-        scope.parse_buffer(TokenBuffer::new(source)?)?;
+        scope.parse_module(TokenBuffer::new(source.clone())?, &source.path)?;
 
         for function in self.function {
             scope.add_function(function);

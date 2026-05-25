@@ -658,18 +658,30 @@ impl Expression {
                 //let kind = expression.as_ref().unwrap().analyze(scope, None)?;
 
                 match value {
+                    ExpressionKind::String => {
+                        let e = expression.as_ref().unwrap();
+
+                        if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                            && let ExpressionOperator::Invocation(list) = a_o
+                        {
+                            let i = a_e.analyze_identifier()?;
+
+                            let index = scope.get_function_string(i.clone()).unwrap();
+                            return Ok(index.leave.into_kind(scope));
+                        }
+
+                        panic!("found integer")
+                    }
                     ExpressionKind::Integer => {
                         let e = expression.as_ref().unwrap();
 
                         if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
                             && let ExpressionOperator::Invocation(list) = a_o
                         {
-                            let kind = a_e.analyze(scope, None)?;
+                            let i = a_e.analyze_identifier()?;
 
-                            if let ExpressionKind::Identifier(ref i) = kind {
-                                let index = scope.get_function_integer(i.clone()).unwrap();
-                                return Ok(index.leave.into_kind(scope));
-                            }
+                            let index = scope.get_function_integer(i.clone()).unwrap();
+                            return Ok(index.leave.into_kind(scope));
                         }
 
                         panic!("found integer")
@@ -680,18 +692,16 @@ impl Expression {
                         if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
                             && let ExpressionOperator::Invocation(list) = a_o
                         {
-                            let kind = a_e.analyze(scope, None)?;
+                            let i = a_e.analyze_identifier()?;
 
-                            if let ExpressionKind::Identifier(ref i) = kind {
-                                let index = scope.get_function_decimal(i.clone()).unwrap();
+                            let index = scope.get_function_decimal(i.clone()).unwrap();
 
-                                //println!("{index:#?}");
+                            println!("{index:#?}");
 
-                                return Ok(index.leave.into_kind(scope));
-                            }
+                            return Ok(index.leave.into_kind(scope));
                         }
 
-                        panic!("found integer")
+                        panic!("found decimal");
                     }
                     ExpressionKind::Array(_) => {
                         let e = expression.as_ref().unwrap();
@@ -699,12 +709,10 @@ impl Expression {
                         if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
                             && let ExpressionOperator::Invocation(list) = a_o
                         {
-                            let kind = a_e.analyze(scope, None)?;
+                            let i = a_e.analyze_identifier()?;
 
-                            if let ExpressionKind::Identifier(ref i) = kind {
-                                let index = scope.get_function_array(i.clone()).unwrap();
-                                return Ok(index.leave.into_kind(scope));
-                            }
+                            let index = scope.get_function_array(i.clone()).unwrap();
+                            return Ok(index.leave.into_kind(scope));
                         }
 
                         panic!("found integer")
@@ -717,18 +725,16 @@ impl Expression {
                         if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
                             && let ExpressionOperator::Invocation(list) = a_o
                         {
-                            let kind = a_e.analyze(scope, None)?;
+                            let i = a_e.analyze_identifier()?;
 
-                            if let ExpressionKind::Identifier(ref i) = kind {
-                                let index = structure.function.get(&i.text).unwrap();
+                            let index = structure.function.get(&i.text).unwrap();
 
-                                //println!("found function {i:?}");
+                            //println!("found function {i:?}");
 
-                                if let Some(leave) = &index.leave {
-                                    return leave.type_check(scope);
-                                } else {
-                                    return Ok(ExpressionKind::Null);
-                                }
+                            if let Some(leave) = &index.leave {
+                                return leave.type_check(scope);
+                            } else {
+                                return Ok(ExpressionKind::Null);
                             }
                         }
 
@@ -1197,6 +1203,26 @@ impl Expression {
                         //let index = expression.as_ref().unwrap().analyze(scope, None)?;
 
                         match kind {
+                            ExpressionKind::String => {
+                                value.compile(scope, function)?;
+
+                                let e = expression.as_ref().unwrap();
+
+                                if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
+                                    && let ExpressionOperator::Invocation(list) = a_o
+                                {
+                                    let i = a_e.analyze_identifier()?;
+
+                                    let index = scope.get_function_string(i.clone()).unwrap();
+
+                                    for argument in list.iter().rev() {
+                                        argument.compile(scope, function)?;
+                                    }
+
+                                    function
+                                        .push(Instruction::CallNative(index.index, list.len() + 1));
+                                }
+                            }
                             ExpressionKind::Integer => {
                                 value.compile(scope, function)?;
 
@@ -1205,20 +1231,18 @@ impl Expression {
                                 if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
                                     && let ExpressionOperator::Invocation(list) = a_o
                                 {
-                                    let kind = a_e.analyze(scope, None)?;
+                                    let i = a_e.analyze_identifier()?;
 
-                                    if let ExpressionKind::Identifier(ref i) = kind {
-                                        let index = scope.get_function_integer(i.clone()).unwrap();
+                                    let index = scope
+                                        .get_function_integer(i.clone())
+                                        .expect(&format!("no function {i:?}"));
 
-                                        for argument in list.iter().rev() {
-                                            argument.compile(scope, function)?;
-                                        }
-
-                                        function.push(Instruction::CallNative(
-                                            index.index,
-                                            list.len() + 1,
-                                        ));
+                                    for argument in list.iter().rev() {
+                                        argument.compile(scope, function)?;
                                     }
+
+                                    function
+                                        .push(Instruction::CallNative(index.index, list.len() + 1));
                                 }
                             }
                             ExpressionKind::Decimal => {
@@ -1229,20 +1253,16 @@ impl Expression {
                                 if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
                                     && let ExpressionOperator::Invocation(list) = a_o
                                 {
-                                    let kind = a_e.analyze(scope, None)?;
+                                    let i = a_e.analyze_identifier()?;
 
-                                    if let ExpressionKind::Identifier(ref i) = kind {
-                                        let index = scope.get_function_decimal(i.clone()).unwrap();
+                                    let index = scope.get_function_decimal(i.clone()).unwrap();
 
-                                        for argument in list.iter().rev() {
-                                            argument.compile(scope, function)?;
-                                        }
-
-                                        function.push(Instruction::CallNative(
-                                            index.index,
-                                            list.len() + 1,
-                                        ));
+                                    for argument in list.iter().rev() {
+                                        argument.compile(scope, function)?;
                                     }
+
+                                    function
+                                        .push(Instruction::CallNative(index.index, list.len() + 1));
                                 }
                             }
                             ExpressionKind::Array(_) => {
@@ -1251,22 +1271,18 @@ impl Expression {
                                 if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
                                     && let ExpressionOperator::Invocation(list) = a_o
                                 {
-                                    let kind = a_e.analyze(scope, None)?;
+                                    let i = a_e.analyze_identifier()?;
 
-                                    if let ExpressionKind::Identifier(ref i) = kind {
-                                        let index = scope.get_function_array(i.clone()).unwrap();
+                                    let index = scope.get_function_array(i.clone()).unwrap();
 
-                                        for argument in list.iter().rev() {
-                                            argument.compile(scope, function)?;
-                                        }
-
-                                        value.load_identifier(scope, function, true);
-
-                                        function.push(Instruction::CallNative(
-                                            index.index,
-                                            list.len() + 1,
-                                        ));
+                                    for argument in list.iter().rev() {
+                                        argument.compile(scope, function)?;
                                     }
+
+                                    value.load_identifier(scope, function, true);
+
+                                    function
+                                        .push(Instruction::CallNative(index.index, list.len() + 1));
                                 }
                             }
                             ExpressionKind::Structure(ref identifier) => {
@@ -1277,7 +1293,7 @@ impl Expression {
                                 if let ExpressionData::OperationAfter(a_e, a_o) = &e.data
                                     && let ExpressionOperator::Invocation(list) = a_o
                                 {
-                                    let kind = a_e.analyze(scope, None)?;
+                                    let i = a_e.analyze_identifier()?;
 
                                     for argument in list.iter().rev() {
                                         argument.compile(scope, function)?;
@@ -1285,13 +1301,11 @@ impl Expression {
 
                                     value.load_identifier(scope, function, true);
 
-                                    if let ExpressionKind::Identifier(ref i) = kind {
-                                        let index = structure.function.get(&i.text).unwrap();
-                                        function.push(Instruction::Call(
-                                            index.index.unwrap(),
-                                            list.len() + 1,
-                                        ));
-                                    }
+                                    let index = structure.function.get(&i.text).unwrap();
+                                    function.push(Instruction::Call(
+                                        index.index.unwrap(),
+                                        list.len() + 1,
+                                    ));
                                 }
 
                                 if let ExpressionData::Value(v) = &e.data

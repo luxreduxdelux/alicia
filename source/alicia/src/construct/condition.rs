@@ -77,7 +77,7 @@ impl Condition {
         })
     }
 
-    pub fn analyze(&mut self, scope: ScopePointer) -> Result<(), Error> {
+    pub fn analyze(&mut self, scope: ScopePointer, iteration: bool) -> Result<(), Error> {
         if let Some(value) = &self.value {
             let kind = value.analyze(&mut scope.borrow_mut(), None)?;
 
@@ -87,10 +87,10 @@ impl Condition {
         }
 
         if let Some(child) = &mut self.child {
-            child.analyze(scope.clone())?;
+            child.analyze(scope.clone(), iteration)?;
         }
 
-        self.block.analyze(scope, Vec::default(), false)?;
+        self.block.analyze(scope, Vec::default(), iteration)?;
 
         Ok(())
     }

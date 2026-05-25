@@ -90,7 +90,10 @@ impl Error {
             text_box.push('│');
             text_box.push(' ');
             text_box.push_str(&line_text);
-            text_box.push_str(&' '.to_string().repeat(line_size - (line_text.len() + 2)));
+            text_box.push_str(
+                &' '.to_string()
+                    .repeat(line_size.saturating_sub(line_text.len() + 2)),
+            );
             text_box.push(' ');
             text_box.push('│');
             text_box.push(' ');

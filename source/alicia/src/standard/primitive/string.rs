@@ -1,4 +1,5 @@
 use crate::machine::Argument;
+use crate::machine::Array;
 use crate::machine::Machine;
 use crate::machine::Value;
 use crate::machine::ValueType;
@@ -48,6 +49,16 @@ fn lower(value: String) -> String {
     Some(Value::String(value.to_lowercase()))
 }
 
+fn split(machine: &mut Machine, mut argument: Argument) -> Option<Value> {
+    let token = argument.next().unwrap().as_string();
+    let value = argument.next().unwrap().as_string();
+    let array: Vec<String> = value.split(&token).map(|x| x.to_string()).collect();
+
+    //println!("split: {value:?}, {token:?}, {array:?}");
+
+    Some(array.into())
+}
+
 pub fn module(scope: &mut Scope) {
     function_string_add!(scope, to_integer);
     function_string_add!(scope, to_decimal);
@@ -55,4 +66,10 @@ pub fn module(scope: &mut Scope) {
     function_string_add!(scope, length);
     function_string_add!(scope, upper);
     function_string_add!(scope, lower);
+    scope.add_function_string(FunctionNative::new(
+        "split".into(),
+        self::split,
+        NativeArgument::Constant(&[ValueType::String]),
+        ValueType::Array(&ValueType::String),
+    ));
 }
