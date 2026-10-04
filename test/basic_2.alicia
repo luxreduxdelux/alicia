@@ -1,0 +1,92 @@
+# Check if {value} is in {array}.
+function isInArray(array: Array<Integer>, value: Integer): Boolean {
+    result := false;
+    i := 0;
+
+    while (i < array.length()) {
+        if (array[i] = value) {
+            result := true;
+        }
+
+        i := i + 1;
+    }
+
+    return result;
+}
+
+# Check if {divisor} can divide every number in {array}.
+function canDivideAll(array: Array<Integer>, divisor: Integer): Boolean {
+    result := true;
+    i := 0;
+
+    while (i < array.length()) {
+        if (array[i] % divisor != 0) {
+            result := false;
+        }
+
+        i := i + 1;
+    }
+
+    return result;
+}
+
+# Return the total sum of every number in {array}.
+function totalSum(array: Array<Integer>): Integer {
+    result := 0;
+    i := 0;
+
+    while (i < array.length()) {
+        result := result + array[i];
+        i := i + 1;
+    }
+
+    return result;
+}
+
+# Return the maximum number in {array}.
+function maximum(array: Array<Integer>): Integer {
+    result := 0;
+    i := 0;
+
+    while (i < array.length()) {
+        if (array[i] >= result) {
+            result := array[i];
+        }
+
+        i := i + 1;
+    }
+
+    return result;
+}
+
+# Return the minimum number in {array}.
+function minimum(array: Array<Integer>): Integer {
+    result := 0;
+    i := 0;
+
+    while (i < array.length()) {
+        if (array[i] <= result) {
+            result := array[i];
+        }
+
+        i := i + 1;
+    }
+
+    return result;
+}
+
+# Check if every number in {array} is in ascending order.
+function isInOrder(array: Array<Integer>): Integer {
+    result := true;
+    i := 0;
+
+    while (i < array.length() - 1) {
+        if (array[i] >= array[i + 1]) {
+            return false;
+        }
+
+        i := i + 1;
+    }
+
+    return result;
+}

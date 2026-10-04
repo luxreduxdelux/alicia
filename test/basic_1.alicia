@@ -1,0 +1,71 @@
+# Log a basic "hello, world" message.
+function hello_world() {
+    log("Hello, world!");
+}
+
+# Return the square root of 2.
+function squareRootOf2(): Decimal {
+    return (2.0).squareRoot().round(4.0);
+}
+
+# Return 2! (factorial).
+function factorialOfTwo(): Integer {
+    return 2 * 1;
+}
+
+# Return the perimeter of a circle whose radius is 1.
+function perimeter(): Decimal {
+    return 2.0 * Decimal.PI;
+}
+
+#================================================================
+
+# Log a greeting.
+function greeting(name -> String) {
+    log("Hello, " ++ name);
+}
+
+# Return the square root of {x}.
+function squareRootOf(x: Decimal): Decimal {
+    return x.squareRoot();
+}
+
+# Return the conversion of {t} from Farenheit temperature to Celsius.
+function farenheitToCelsius(t: Decimal): Decimal {
+    return ((t - 32.0) * 5.0) / 9.0;
+}
+
+# Check if {n} is a multiple of {m}.
+function isMultipleOf(n: Integer, m: Integer): Boolean {
+    return n % m = 0;
+}
+
+# Check if {n} is an even number.
+function isEven(n: Integer): Boolean {
+    return isMultipleOf(n, 2);
+}
+
+#================================================================
+
+# Check if either {a} or {b} are zero.
+function isEitherZero(a: Integer, b: Integer): Boolean {
+    return a = 0 or b = 0;
+}
+
+# Check if {a} and {b} are zero.
+function areBothZero(a: Integer, b: Integer): Boolean {
+    return a = 0 and b = 0;
+}
+
+# Check if {name} is a long name.
+function isLongName(name: String): Boolean {
+    return 3 <= name.length() and name.length() <= 8;
+}
+
+# Check if {year} is a leap year.
+function isLeapYear(year: Integer): Boolean {
+    return (year % 400 = 0) or (year % 4 = 0 and year % 100 = 0);
+}
+
+#================================================================
+
